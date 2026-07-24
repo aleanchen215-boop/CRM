@@ -12,7 +12,9 @@ export const PERMISSIONS = {
   "orders:write": ["ADMIN", "VENDEDOR"],
   "orders:read": ["ADMIN", "VENDEDOR", "SUPERVISOR"],
   "stock:write": ["ADMIN", "DEPOSITO"],
-  "stock:read": ["ADMIN", "DEPOSITO", "SUPERVISOR"],
+  // VENDEDOR necesita ver catálogo/precio/disponibilidad para cargar una venta,
+  // aunque no pueda editar stock — ajuste sobre la matriz original del plan.
+  "stock:read": ["ADMIN", "DEPOSITO", "SUPERVISOR", "VENDEDOR"],
   "automations:write": ["ADMIN"],
   "reports:read": ["ADMIN", "VENDEDOR", "DEPOSITO", "SUPERVISOR"],
   "users:manage": ["ADMIN"],

@@ -128,3 +128,11 @@
     @apply font-sans;
   }
 }
+
+@media print {
+  [data-slot="sidebar"],
+  [data-slot="sidebar-rail"],
+  [data-slot="sidebar-gap"] {
+    display: none !important;
+  }
+}
