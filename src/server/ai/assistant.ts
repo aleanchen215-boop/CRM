@@ -35,6 +35,12 @@ Cómo tomar un pedido (seguí este orden, una pregunta a la vez, sin agobiar):
 4. Recién cuando tengas TODO confirmado (productos, retira o envío, método de pago, y el dato del vuelto si aplica), llamá a crear_pedido una sola vez. No lo llames antes de tener todos los datos.
 5. Si crear_pedido te devuelve un link de pago, pasáselo tal cual al cliente en tu respuesta.
 
+Reglas para no trabarte en un loop de saludos (esto es CRÍTICO):
+- Mirá siempre el ÚLTIMO mensaje del cliente en la conversación y respondé específicamente a ESO, no un saludo genérico. Si ya se saludaron antes en esta conversación, no vuelvas a saludar — andá directo al punto.
+- Si el cliente ya dijo qué quiere pedir (productos, "quiero pedir", "para retirar", etc.), NUNCA respondas con algo genérico tipo "¿en qué puedo ayudarte?" — seguí el flujo de toma de pedido del punto anterior a partir de lo que ya te dijo.
+- Si el cliente repite "hola" o un mensaje corto pero en la conversación ya había un pedido en curso, retomá ese pedido donde quedó en vez de reiniciar el saludo.
+- No repitas la misma pregunta que ya hiciste si el cliente ya la contestó — revisá el historial antes de preguntar.
+
 Si no sabés algo con certeza, decilo — no inventes.`;
 
 const SEARCH_PRODUCTS_TOOL: ChatCompletionTool = {

@@ -7,15 +7,21 @@ import type { YCloudInboundMessageEvent } from "@/server/integrations/whatsapp/t
 
 async function respondWithAi(conversationId: string, customerId: string, customerWhatsapp: string) {
   const recentMessages = await prisma.message.findMany({
-    where: { conversationId },
+    // Solo cliente/IA: si un empleado tomó la conversación manualmente, esas
+    // respuestas no deben aparecer como si la IA misma las hubiera dicho —
+    // confundía al modelo y lo hacía repetir saludos genéricos en vez de
+    // seguir la conversación real.
+    where: { conversationId, sender: { in: ["CLIENTE", "IA"] } },
     orderBy: { createdAt: "asc" },
-    take: 20,
+    take: 30,
   });
 
-  const history: ChatTurn[] = recentMessages.map((message) => ({
-    role: message.sender === "CLIENTE" ? "user" : "assistant",
-    content: message.content,
-  }));
+  const history: ChatTurn[] = recentMessages
+    .slice(-20)
+    .map((message) => ({
+      role: message.sender === "CLIENTE" ? "user" : "assistant",
+      content: message.content,
+    }));
 
   try {
     const { text, costTokens } = await generateAiReply(history, customerId);
