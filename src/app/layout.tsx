@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import { TrpcProvider } from "@/lib/trpc/Provider";
 import { ThemeProvider } from "@/components/theme-provider";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -35,6 +36,7 @@ export default function RootLayout({
         <ThemeProvider>
           <TrpcProvider>
             <TooltipProvider>{children}</TooltipProvider>
+            <Toaster position="bottom-right" />
           </TrpcProvider>
         </ThemeProvider>
       </body>
