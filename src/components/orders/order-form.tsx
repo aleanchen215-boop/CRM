@@ -9,6 +9,7 @@ import type { OrderFormValues } from "@/components/orders/order-form-types";
 import { trpc } from "@/lib/trpc/client";
 import { formatCurrency } from "@/lib/format";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -97,13 +98,14 @@ export function OrderForm({
       method: "EFECTIVO",
       items: [emptyRow()],
       notes: "",
+      shippingAddress: "",
     },
   });
 
   const { fields, append, remove } = useFieldArray({ control: form.control, name: "items" });
   const watchedItems = useWatch({ control: form.control, name: "items" });
 
-  const total = (watchedItems ?? []).reduce((sum, row) => {
+  const itemsTotal = (watchedItems ?? []).reduce((sum, row) => {
     if (row.rowType === "PROMOCION") {
       const promo = promotions?.find((p) => p.id === row.promotionId);
       return sum + (promo?.price ?? 0);
@@ -111,6 +113,9 @@ export function OrderForm({
     const product = products?.find((p) => p.id === row.productId);
     return sum + (product ? product.price * (row.quantity || 0) : 0);
   }, 0);
+  // Mismo valor fijo que DELIVERY_FEE en el servidor — se suma solo acá
+  // para que la vista previa del total coincida con lo que se va a cobrar.
+  const total = channel === "DELIVERY" ? itemsTotal + 3500 : itemsTotal;
 
   const create = trpc.orders.create.useMutation({
     onSuccess: async (order) => {
@@ -131,6 +136,10 @@ export function OrderForm({
       toast.error(error);
       return;
     }
+    if (channel === "DELIVERY" && !values.shippingAddress.trim()) {
+      toast.error("Completá la dirección de entrega.");
+      return;
+    }
     create.mutate({
       customerId: values.customerId,
       method: values.method,
@@ -138,6 +147,7 @@ export function OrderForm({
       channelSource,
       items: toApiItems(values.items),
       notes: values.notes.trim() || undefined,
+      shippingAddress: channel === "DELIVERY" ? values.shippingAddress.trim() : undefined,
     });
   });
 
@@ -171,6 +181,13 @@ export function OrderForm({
                       return;
                     }
                     field.onChange(value);
+                    // Precarga la dirección guardada del cliente si el pedido
+                    // es delivery y todavía no se escribió nada — no pisa lo
+                    // que el usuario ya haya tipeado.
+                    if (channel === "DELIVERY" && !form.getValues("shippingAddress")) {
+                      const customer = customers?.find((c) => c.id === value);
+                      if (customer?.address) form.setValue("shippingAddress", customer.address);
+                    }
                   }}
                 >
                   <SelectTrigger id="customerId" className="w-full">
@@ -197,6 +214,17 @@ export function OrderForm({
               )}
             />
           </Field>
+
+          {channel === "DELIVERY" && (
+            <Field>
+              <FieldLabel htmlFor="shippingAddress">Dirección de entrega</FieldLabel>
+              <Input
+                id="shippingAddress"
+                placeholder="Calle, número, referencia…"
+                {...form.register("shippingAddress")}
+              />
+            </Field>
+          )}
 
           <Field>
             <FieldLabel htmlFor="method">Método de pago</FieldLabel>

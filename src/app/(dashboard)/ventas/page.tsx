@@ -7,6 +7,7 @@ import { salesChannelValues } from "@/lib/validation/order";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { OrderStatusBadge } from "@/components/orders/order-status-badge";
+import { PaymentStatusBadge } from "@/components/orders/payment-status-badge";
 import { NewOrderDialog } from "@/components/orders/new-order-dialog";
 
 const CHANNEL_LABELS: Record<(typeof salesChannelValues)[number], string> = {
@@ -58,7 +59,10 @@ export default function VentasPage() {
                       <span className="font-medium">
                         {order.customer.firstName} {order.customer.lastName}
                       </span>
-                      <OrderStatusBadge status={order.status} />
+                      <div className="flex items-center gap-1.5">
+                        <PaymentStatusBadge method={order.method} payments={order.payments} />
+                        <OrderStatusBadge status={order.status} />
+                      </div>
                     </div>
                     <div className="flex items-center justify-between text-muted-foreground">
                       <span>
@@ -67,6 +71,11 @@ export default function VentasPage() {
                       </span>
                       <span>{formatCurrency(order.total)}</span>
                     </div>
+                    {channel === "DELIVERY" && order.shippingAddress && (
+                      <span className="truncate text-xs text-muted-foreground">
+                        {order.shippingAddress}
+                      </span>
+                    )}
                   </Link>
                 ))}
               </CardContent>

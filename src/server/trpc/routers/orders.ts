@@ -22,7 +22,11 @@ export const ordersRouter = router({
     const orders = await ctx.prisma.order.findMany({
       where: { status: { not: "CANCELADO" } },
       orderBy: { createdAt: "desc" },
-      include: { customer: true, _count: { select: { items: true } } },
+      include: {
+        customer: true,
+        _count: { select: { items: true } },
+        payments: { select: { status: true } },
+      },
     });
     return orders.map(toNumber);
   }),

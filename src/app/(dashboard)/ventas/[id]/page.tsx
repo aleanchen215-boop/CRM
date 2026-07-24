@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { OrderStatusBadge } from "@/components/orders/order-status-badge";
+import { PaymentStatusBadge } from "@/components/orders/payment-status-badge";
 import { OrderStatusSelect } from "@/components/orders/order-status-select";
 import { OrderNotifyButton } from "@/components/orders/order-notify-button";
 import { OrderCancelButton } from "@/components/orders/order-cancel-button";
@@ -93,6 +94,7 @@ export default function OrderDetailPage({
               Pedido de {order.customer.firstName} {order.customer.lastName}
             </h1>
             <OrderStatusBadge status={order.status} />
+            <PaymentStatusBadge method={order.method} payments={order.payments} />
           </div>
           <p className="text-sm text-muted-foreground">
             {new Date(order.createdAt).toLocaleDateString("es-AR")} ·{" "}
@@ -100,6 +102,9 @@ export default function OrderDetailPage({
             {CHANNEL_LABELS[order.channel] ?? order.channel}
             {order.channelSource ? ` (${order.channelSource})` : ""}
           </p>
+          {order.channel === "DELIVERY" && order.shippingAddress && (
+            <p className="text-sm text-muted-foreground">Dirección: {order.shippingAddress}</p>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <OrderNotifyButton orderId={order.id} channel={order.channel} />

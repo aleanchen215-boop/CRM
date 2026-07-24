@@ -13,4 +13,5 @@ export type OrderFormValues = {
   method: (typeof paymentMethodValues)[number];
   items: OrderRowValue[];
   notes: string;
+  shippingAddress: string;
 };
