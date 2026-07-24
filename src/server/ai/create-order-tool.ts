@@ -1,6 +1,12 @@
 import type { ChatCompletionTool } from "openai/resources/chat/completions";
 import { prisma } from "@/lib/prisma";
-import { addItemsToOrder, createOrder, updatePendingOrderPayment } from "@/server/orders/create-order";
+import {
+  DELIVERY_FEE,
+  addItemsToOrder,
+  createOrder,
+  updatePendingOrderChannel,
+  updatePendingOrderPayment,
+} from "@/server/orders/create-order";
 import { createMercadoPagoPreference } from "@/server/integrations/mercadopago/client";
 import type { OrderInput } from "@/lib/validation/order";
 
@@ -107,8 +113,6 @@ function findExactPromotion<T>(items: T[], name: (item: T) => string, query: str
   return items.find((item) => normalize(name(item)) === normalizedQuery);
 }
 
-// Costo fijo de envío, se suma al total de todo pedido con canal=DELIVERY.
-const DELIVERY_FEE = 3500;
 
 interface CreateOrderArgs {
   canal: "MOSTRADOR" | "DELIVERY";
@@ -315,6 +319,17 @@ export const MODIFY_ORDER_TOOL: ChatCompletionTool = {
             required: ["nombre"],
           },
         },
+        canal: {
+          type: "string",
+          enum: ["MOSTRADOR", "DELIVERY"],
+          description:
+            "Solo si el cliente cambia entre retirar y envío respecto de lo que ya tenía (ej. había pedido retirar y ahora quiere que se lo envíen, o al revés). Omitir si no cambia. Si pasa a DELIVERY hace falta la dirección en el campo direccion.",
+        },
+        direccion: {
+          type: "string",
+          description:
+            "Dirección de entrega. Obligatorio si canal=DELIVERY (y el pedido todavía no tenía una dirección guardada). También se puede usar solo para corregir la dirección de un pedido que ya era DELIVERY, sin cambiar canal.",
+        },
         metodoPago: {
           type: "string",
           enum: ["EFECTIVO", "TRANSFERENCIA"],
@@ -334,6 +349,8 @@ export const MODIFY_ORDER_TOOL: ChatCompletionTool = {
 
 interface ModifyOrderArgs {
   items?: ItemArg[];
+  canal?: "MOSTRADOR" | "DELIVERY";
+  direccion?: string;
   metodoPago?: "EFECTIVO" | "TRANSFERENCIA";
   pagaCon?: number;
 }
@@ -346,8 +363,6 @@ export async function handleModifyOrder(customerId: string, args: ModifyOrderArg
   if (!order) {
     return "Este cliente no tiene ningún pedido pendiente para modificar — si quiere pedir algo, hay que hacer un pedido nuevo con crear_pedido, no esta herramienta.";
   }
-
-  let total = Number(order.total);
 
   if (args.items && args.items.length > 0) {
     const resolved = await resolveItemsForOrder(args.items);
@@ -371,11 +386,21 @@ export async function handleModifyOrder(customerId: string, args: ModifyOrderArg
       if (!updated) {
         return "Este pedido ya no se puede modificar (ya está en preparación o ya salió) — si el cliente quiere algo más, hay que hacer un pedido nuevo.";
       }
-      total = Number(updated.total);
     }
   }
 
-  let method: string = order.method;
+  if (args.canal && args.canal !== order.channel) {
+    if (args.canal === "DELIVERY" && !args.direccion?.trim() && !order.shippingAddress) {
+      return "Para cambiar el pedido a envío hace falta la dirección de entrega — preguntásela al cliente antes de reintentar.";
+    }
+    const updated = await updatePendingOrderChannel(order.id, { channel: args.canal, shippingAddress: args.direccion });
+    if (!updated) {
+      return "Este pedido ya no se puede modificar (ya está en preparación o ya salió).";
+    }
+  } else if (args.direccion?.trim() && order.channel === "DELIVERY") {
+    await updatePendingOrderChannel(order.id, { channel: "DELIVERY", shippingAddress: args.direccion });
+  }
+
   if (args.metodoPago && args.metodoPago !== order.method) {
     const updated = await updatePendingOrderPayment(order.id, {
       method: args.metodoPago,
@@ -384,17 +409,20 @@ export async function handleModifyOrder(customerId: string, args: ModifyOrderArg
     if (!updated) {
       return "Este pedido ya no se puede modificar (ya está en preparación o ya salió).";
     }
-    method = args.metodoPago;
-  } else if (args.pagaCon !== undefined && method === "EFECTIVO") {
+  } else if (args.pagaCon !== undefined && order.method === "EFECTIVO") {
     await updatePendingOrderPayment(order.id, { changeFor: args.pagaCon });
   }
 
-  const deliveryNote = order.deliveryFee
-    ? ` (incluye $${Number(order.deliveryFee).toLocaleString("es-AR")} de envío)`
+  const finalOrder = await prisma.order.findUnique({ where: { id: order.id } });
+  if (!finalOrder) return "Hubo un problema actualizando el pedido, reintentá.";
+
+  const total = Number(finalOrder.total);
+  const deliveryNote = finalOrder.deliveryFee
+    ? ` (incluye $${Number(finalOrder.deliveryFee).toLocaleString("es-AR")} de envío a ${finalOrder.shippingAddress})`
     : "";
 
-  if (method === "TRANSFERENCIA") {
-    const preference = await createMercadoPagoPreference(order.id, total);
+  if (finalOrder.method === "TRANSFERENCIA") {
+    const preference = await createMercadoPagoPreference(finalOrder.id, total);
     if (preference) {
       return `Pedido actualizado (nuevo total $${total.toLocaleString("es-AR")}${deliveryNote}). Pasale este link de pago al cliente para que transfiera con Mercado Pago: ${preference.initPoint}`;
     }

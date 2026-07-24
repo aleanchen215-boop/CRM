@@ -5,6 +5,11 @@ import type { OrderInput } from "@/lib/validation/order";
 
 type OrderItemInput = OrderInput["items"][number];
 
+// Costo fijo de envío, se suma al total de todo pedido con channel=DELIVERY.
+// Vive acá (no en create-order-tool.ts) porque tanto la creación como el
+// cambio de canal de un pedido existente lo necesitan.
+export const DELIVERY_FEE = 3500;
+
 async function resolveOrderItem(
   tx: Prisma.TransactionClient,
   item: OrderItemInput,
@@ -110,7 +115,7 @@ export async function createOrder(input: CreateOrderInput) {
       itemsData.push(resolved.data);
     }
 
-    const deliveryFee = input.channel === "DELIVERY" ? input.deliveryFee : undefined;
+    const deliveryFee = input.channel === "DELIVERY" ? (input.deliveryFee ?? DELIVERY_FEE) : undefined;
     total += deliveryFee ?? 0;
 
     return tx.order.create({
@@ -176,5 +181,33 @@ export async function updatePendingOrderPayment(
       method: data.method ?? order.method,
       changeFor: data.changeFor,
     },
+  });
+}
+
+// Cambia MOSTRADOR<->DELIVERY (o solo la dirección) de un pedido PENDIENTE —
+// ej. el cliente pidió retirar y después decide que se lo enviemos. Ajusta
+// el total sumando o restando el costo fijo de envío según corresponda.
+// Devuelve null si el pedido ya no está en un estado modificable.
+export async function updatePendingOrderChannel(
+  orderId: string,
+  data: { channel: "MOSTRADOR" | "DELIVERY"; shippingAddress?: string },
+) {
+  return prisma.$transaction(async (tx) => {
+    const order = await tx.order.findUnique({ where: { id: orderId } });
+    if (!order || order.status !== "PENDIENTE") return null;
+
+    const previousFee = Number(order.deliveryFee ?? 0);
+    const newFee = data.channel === "DELIVERY" ? DELIVERY_FEE : 0;
+    const total = Number(order.total) - previousFee + newFee;
+
+    return tx.order.update({
+      where: { id: orderId },
+      data: {
+        channel: data.channel,
+        deliveryFee: data.channel === "DELIVERY" ? newFee : null,
+        shippingAddress: data.channel === "DELIVERY" ? (data.shippingAddress ?? order.shippingAddress) : null,
+        total,
+      },
+    });
   });
 }
