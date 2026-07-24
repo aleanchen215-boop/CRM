@@ -49,12 +49,17 @@ async function resolveOrderItem(
       });
     }
 
+    // `id: { in: [...] }` dedupe repetidos (ej. 2x el mismo sabor) — por eso
+    // se consulta por ids únicos y se valida contra ese set, no contra la
+    // cantidad de productIds pedidos.
+    const uniqueIds = [...new Set(selection.productIds)];
     const chosenProducts = await tx.product.findMany({
-      where: { id: { in: selection.productIds } },
+      where: { id: { in: uniqueIds } },
     });
-    if (chosenProducts.length !== selection.productIds.length) {
+    if (chosenProducts.length !== uniqueIds.length) {
       throw new TRPCError({ code: "NOT_FOUND", message: "Producto elegido no encontrado." });
     }
+    const productById = new Map(chosenProducts.map((product) => [product.id, product]));
     const invalid = chosenProducts.find((product) => product.categoryId !== promoItem.categoryId);
     if (invalid) {
       throw new TRPCError({
@@ -68,7 +73,7 @@ async function resolveOrderItem(
       categoria: promoItem.category?.name ?? "",
       productos: selection.productIds.map((id) => ({
         productId: id,
-        nombre: chosenProducts.find((p) => p.id === id)?.name ?? "",
+        nombre: productById.get(id)?.name ?? "",
       })),
     });
   }
@@ -87,6 +92,9 @@ async function resolveOrderItem(
 export type CreateOrderInput = OrderInput & {
   employeeId?: string;
   changeFor?: number;
+  // Solo tiene sentido cuando channel = DELIVERY.
+  shippingAddress?: string;
+  deliveryFee?: number;
 };
 
 // Compartido entre el router de tRPC (alta manual) y el asistente de IA
@@ -102,6 +110,9 @@ export async function createOrder(input: CreateOrderInput) {
       itemsData.push(resolved.data);
     }
 
+    const deliveryFee = input.channel === "DELIVERY" ? input.deliveryFee : undefined;
+    total += deliveryFee ?? 0;
+
     return tx.order.create({
       data: {
         customerId: input.customerId,
@@ -111,6 +122,8 @@ export async function createOrder(input: CreateOrderInput) {
         status: "PENDIENTE",
         total,
         changeFor: input.changeFor,
+        shippingAddress: input.channel === "DELIVERY" ? input.shippingAddress : undefined,
+        deliveryFee,
         employeeId: input.employeeId,
         items: { createMany: { data: itemsData } },
         invoice: { create: { type: "INTERNO", status: "EMITIDO" } },

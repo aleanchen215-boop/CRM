@@ -358,6 +358,10 @@ model Order {
   // Solo se usa cuando channel = APPS: distingue de qué plataforma vino
   // (ej. "PEDIDOSYA", "RAPPI") una vez que esas integraciones existan.
   channelSource   String?
+  // Solo si channel = DELIVERY: dirección de entrega y costo fijo de envío.
+  // Se suman al total del pedido.
+  shippingAddress String?
+  deliveryFee     Decimal?      @db.Decimal(12, 2)
   // Id del pedido en la plataforma externa, para evitar duplicados cuando
   // se ingieran pedidos automáticamente vía webhook.
   externalOrderId String?

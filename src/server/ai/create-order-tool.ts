@@ -9,7 +9,7 @@ export const CREATE_ORDER_TOOL: ChatCompletionTool = {
   function: {
     name: "crear_pedido",
     description:
-      "Crea el pedido en el sistema. Llamar UNA sola vez, solo cuando ya están confirmados: los productos/promociones (con sabores elegidos si aplica), si es para retirar o para envío, el método de pago, y si es efectivo con cuánto paga (o que paga justo).",
+      "Crea el pedido en el sistema. Llamar UNA sola vez, solo cuando ya están confirmados: los productos/promociones (con sabores elegidos si aplica), si es para retirar o para envío, y — solo si es para envío — la dirección y el método de pago (y si es efectivo con cuánto paga, o que paga justo). Si es para retirar por el local NO hace falta preguntar ni completar dirección ni método de pago. Los envíos tienen un costo fijo de $3.500 que se suma solo, no hace falta que lo calcules.",
     parameters: {
       type: "object",
       properties: {
@@ -18,7 +18,17 @@ export const CREATE_ORDER_TOOL: ChatCompletionTool = {
           enum: ["MOSTRADOR", "DELIVERY"],
           description: "MOSTRADOR si retira por el local, DELIVERY si se lo enviamos.",
         },
-        metodoPago: { type: "string", enum: ["EFECTIVO", "TRANSFERENCIA"] },
+        direccion: {
+          type: "string",
+          description:
+            "Dirección de entrega. Obligatorio (y hay que preguntarlo) si canal=DELIVERY. Si canal=MOSTRADOR, omitir.",
+        },
+        metodoPago: {
+          type: "string",
+          enum: ["EFECTIVO", "TRANSFERENCIA"],
+          description:
+            "Cómo paga. Obligatorio (y hay que preguntarlo) si canal=DELIVERY. Si canal=MOSTRADOR, omitir este campo — no se le pregunta al cliente.",
+        },
         pagaCon: {
           type: "number",
           description:
@@ -33,11 +43,13 @@ export const CREATE_ORDER_TOOL: ChatCompletionTool = {
             properties: {
               nombre: {
                 type: "string",
-                description: "Nombre exacto del producto o de la promoción.",
+                description:
+                  "Nombre exacto del producto o de la promoción, SIN la cantidad adentro (ej. \"Jamón y Queso\", no \"6 Jamón y Queso\"). La cantidad va aparte, en el campo cantidad.",
               },
               cantidad: {
                 type: "number",
-                description: "Cuántas unidades de este producto. Omitir para promociones (siempre es 1).",
+                description:
+                  "Cuántas unidades de este producto. Poné el número acá, no dentro de nombre. Omitir para promociones (siempre es 1).",
               },
               sabores: {
                 type: "array",
@@ -50,7 +62,7 @@ export const CREATE_ORDER_TOOL: ChatCompletionTool = {
           },
         },
       },
-      required: ["canal", "metodoPago", "items"],
+      required: ["canal", "items"],
     },
   },
 };
@@ -72,9 +84,38 @@ function findBestMatch<T>(items: T[], name: (item: T) => string, query: string):
   );
 }
 
+// El modelo a veces mete la cantidad adentro del texto de "nombre" (ej.
+// "6 Empanadas de Jamón y Queso") en vez de usar el campo `cantidad` —
+// si no se detecta esto, la cantidad cae en 1 sin que nadie lo note y el
+// pedido se cobra de menos. Se extrae el número inicial (si hay) para usarlo
+// como cantidad y se matchea el producto contra el resto del texto.
+function extractLeadingQuantity(nombre: string): { quantity?: number; rest: string } {
+  const match = nombre.match(/^\s*(\d+)\s*x?\s+(.+)$/i);
+  if (!match) return { rest: nombre };
+  const quantity = Number(match[1]);
+  return { quantity: quantity > 0 ? quantity : undefined, rest: match[2] };
+}
+
+// Las promos solo matchean por nombre EXACTO (no por substring): sus nombres
+// suelen incluir el de algún producto suelto (ej. "Muzzarella + 3
+// Empanadas" contiene "Muzzarella"), así que el matching difuso de
+// findBestMatch terminaba confundiendo un pedido de la pizza sola con la
+// promo. El modelo siempre recibe los nombres de promos tal cual en el
+// prompt y en buscar_promociones, así que puede copiarlos literales.
+function findExactPromotion<T>(items: T[], name: (item: T) => string, query: string): T | undefined {
+  const normalizedQuery = normalize(query);
+  return items.find((item) => normalize(name(item)) === normalizedQuery);
+}
+
+// Costo fijo de envío, se suma al total de todo pedido con canal=DELIVERY.
+const DELIVERY_FEE = 3500;
+
 interface CreateOrderArgs {
   canal: "MOSTRADOR" | "DELIVERY";
-  metodoPago: "EFECTIVO" | "TRANSFERENCIA";
+  direccion?: string;
+  // Solo se pregunta cuando canal=DELIVERY; para retiro en el local no hace
+  // falta y el modelo puede omitirlo, así que cae en EFECTIVO por default.
+  metodoPago?: "EFECTIVO" | "TRANSFERENCIA";
   pagaCon?: number;
   items: Array<{
     nombre: string;
@@ -87,6 +128,10 @@ export async function handleCreateOrder(
   customerId: string,
   args: CreateOrderArgs,
 ): Promise<string> {
+  if (args.canal === "DELIVERY" && !args.direccion?.trim()) {
+    return "Para un pedido por envío hace falta la dirección de entrega — preguntásela al cliente antes de reintentar.";
+  }
+
   const products = await prisma.product.findMany({ include: { category: true } });
   const promotions = await prisma.promotion.findMany({
     where: { active: true },
@@ -100,17 +145,20 @@ export async function handleCreateOrder(
     // distintivos) y si no matchea se prueba como producto suelto — así el
     // modelo no tiene que decidir "tipo", que es justo el campo que un
     // modelo chico suele completar mal.
-    const promotion = findBestMatch(promotions, (p) => p.name, item.nombre);
+    const promotion = findExactPromotion(promotions, (p) => p.name, item.nombre);
 
     if (!promotion) {
-      const product = findBestMatch(products, (p) => p.name, item.nombre);
+      const { quantity: quantityFromName, rest: nameForMatch } = extractLeadingQuantity(item.nombre);
+      const product =
+        findBestMatch(products, (p) => p.name, nameForMatch) ??
+        findBestMatch(products, (p) => p.name, item.nombre);
       if (!product) {
         return `No encontré "${item.nombre}" en el catálogo ni en las promociones — confirmá el nombre exacto con el cliente antes de reintentar.`;
       }
       orderItems.push({
         kind: "PRODUCTO",
         productId: product.id,
-        quantity: item.cantidad && item.cantidad > 0 ? item.cantidad : 1,
+        quantity: item.cantidad && item.cantidad > 0 ? item.cantidad : (quantityFromName ?? 1),
       });
       continue;
     }
@@ -153,27 +201,37 @@ export async function handleCreateOrder(
     orderItems.push({ kind: "PROMOCION", promotionId: promotion.id, variableSelections });
   }
 
+  const metodoPago = args.metodoPago ?? "EFECTIVO";
+  const deliveryFee = args.canal === "DELIVERY" ? DELIVERY_FEE : undefined;
+
   const order = await createOrder({
     customerId,
-    method: args.metodoPago,
+    method: metodoPago,
     channel: args.canal,
-    changeFor: args.metodoPago === "EFECTIVO" ? args.pagaCon : undefined,
+    changeFor: metodoPago === "EFECTIVO" ? args.pagaCon : undefined,
+    shippingAddress: args.canal === "DELIVERY" ? args.direccion : undefined,
+    deliveryFee,
     items: orderItems,
   });
 
   const total = Number(order.total);
+  const deliveryNote = deliveryFee ? ` (incluye $${deliveryFee.toLocaleString("es-AR")} de envío)` : "";
 
-  if (args.metodoPago === "TRANSFERENCIA") {
+  if (metodoPago === "TRANSFERENCIA") {
     const preference = await createMercadoPagoPreference(order.id, total);
     if (preference) {
-      return `Pedido creado (total $${total.toLocaleString("es-AR")}). Pasale este link de pago al cliente para que transfiera con Mercado Pago: ${preference.initPoint}`;
+      return `Pedido creado (total $${total.toLocaleString("es-AR")}${deliveryNote}). Pasale este link de pago al cliente para que transfiera con Mercado Pago: ${preference.initPoint}`;
     }
-    return `Pedido creado (total $${total.toLocaleString("es-AR")}). Todavía no está configurado Mercado Pago, así que avisale al cliente que le vas a pasar los datos para transferir por separado.`;
+    return `Pedido creado (total $${total.toLocaleString("es-AR")}${deliveryNote}). Todavía no está configurado Mercado Pago, así que avisale al cliente que le vas a pasar los datos para transferir por separado.`;
+  }
+
+  if (args.canal === "MOSTRADOR") {
+    return `Pedido creado (total $${total.toLocaleString("es-AR")}) para retirar por el local. Paga ahí, no hace falta preguntar nada más de pago.`;
   }
 
   if (args.pagaCon && args.pagaCon > total) {
-    return `Pedido creado (total $${total.toLocaleString("es-AR")}). El cliente paga con $${args.pagaCon.toLocaleString("es-AR")}, hay que llevarle $${(args.pagaCon - total).toLocaleString("es-AR")} de vuelto.`;
+    return `Pedido creado (total $${total.toLocaleString("es-AR")}${deliveryNote}). El cliente paga con $${args.pagaCon.toLocaleString("es-AR")}, hay que llevarle $${(args.pagaCon - total).toLocaleString("es-AR")} de vuelto.`;
   }
 
-  return `Pedido creado (total $${total.toLocaleString("es-AR")}), paga en efectivo sin vuelto.`;
+  return `Pedido creado (total $${total.toLocaleString("es-AR")}${deliveryNote}), paga en efectivo sin vuelto.`;
 }
