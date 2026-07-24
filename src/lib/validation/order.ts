@@ -7,7 +7,12 @@ export const paymentMethodValues = [
   "OTRO",
 ] as const;
 
-export const salesChannelValues = ["WHATSAPP", "MOSTRADOR", "OTRO"] as const;
+export const salesChannelValues = ["MOSTRADOR", "DELIVERY", "APPS"] as const;
+
+// Plataforma de origen dentro del canal "Apps" (PedidosYa, Rappi, etc.).
+// Texto libre por ahora — se vuelve un valor fijo (o se autocompleta) el
+// día que exista integración automática con cada plataforma.
+export const appsSourceSuggestions = ["PedidosYa", "Rappi"] as const;
 
 export const orderStatusValues = [
   "PENDIENTE",
@@ -25,7 +30,8 @@ export const orderItemInputSchema = z.object({
 export const orderInputSchema = z.object({
   customerId: z.string().min(1, "Elegí un cliente"),
   method: z.enum(paymentMethodValues),
-  channel: z.enum(salesChannelValues).default("WHATSAPP"),
+  channel: z.enum(salesChannelValues).default("MOSTRADOR"),
+  channelSource: z.string().trim().optional(),
   items: z.array(orderItemInputSchema).min(1, "Agregá al menos un producto"),
 });
 

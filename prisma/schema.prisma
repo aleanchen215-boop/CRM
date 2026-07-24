@@ -292,9 +292,9 @@ enum PaymentMethod {
 }
 
 enum SalesChannel {
-  WHATSAPP
   MOSTRADOR
-  OTRO
+  DELIVERY
+  APPS
 }
 
 model Order {
@@ -303,7 +303,13 @@ model Order {
   customer   Customer      @relation(fields: [customerId], references: [id])
   status     OrderStatus   @default(PENDIENTE)
   method     PaymentMethod
-  channel    SalesChannel  @default(WHATSAPP)
+  channel    SalesChannel  @default(MOSTRADOR)
+  // Solo se usa cuando channel = APPS: distingue de qué plataforma vino
+  // (ej. "PEDIDOSYA", "RAPPI") una vez que esas integraciones existan.
+  channelSource   String?
+  // Id del pedido en la plataforma externa, para evitar duplicados cuando
+  // se ingieran pedidos automáticamente vía webhook.
+  externalOrderId String?
   employeeId String?
   employee   User?         @relation(fields: [employeeId], references: [id])
   total      Decimal       @db.Decimal(12, 2)
@@ -316,6 +322,7 @@ model Order {
   shipment       Shipment?
   stockMovements StockMovement[]
 
+  @@unique([channelSource, externalOrderId])
   @@map("orders")
 }
 

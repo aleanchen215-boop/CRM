@@ -73,6 +73,7 @@ export const ordersRouter = router({
             customerId: input.customerId,
             method: input.method,
             channel: input.channel,
+            channelSource: input.channel === "APPS" ? input.channelSource : undefined,
             status: "PENDIENTE",
             total,
             employeeId: ctx.user.id,

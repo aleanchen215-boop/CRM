@@ -18,6 +18,12 @@ const METHOD_LABELS: Record<string, string> = {
   OTRO: "Otro",
 };
 
+const CHANNEL_LABELS: Record<string, string> = {
+  MOSTRADOR: "Mostrador",
+  DELIVERY: "Delivery",
+  APPS: "Apps",
+};
+
 export default function OrderDetailPage({
   params,
 }: {
@@ -58,7 +64,9 @@ export default function OrderDetailPage({
           </div>
           <p className="text-sm text-muted-foreground">
             {new Date(order.createdAt).toLocaleDateString("es-AR")} ·{" "}
-            {METHOD_LABELS[order.method] ?? order.method}
+            {METHOD_LABELS[order.method] ?? order.method} ·{" "}
+            {CHANNEL_LABELS[order.channel] ?? order.channel}
+            {order.channelSource ? ` (${order.channelSource})` : ""}
           </p>
         </div>
         <div className="flex items-center gap-2">

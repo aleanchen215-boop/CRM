@@ -5,6 +5,7 @@ import { Controller, useFieldArray, useForm, useWatch, type Resolver } from "rea
 import { toast } from "sonner";
 import { Plus, Trash2 } from "lucide-react";
 import {
+  appsSourceSuggestions,
   orderInputSchema,
   paymentMethodValues,
   salesChannelValues,
@@ -31,9 +32,9 @@ const METHOD_LABELS: Record<(typeof paymentMethodValues)[number], string> = {
 };
 
 const CHANNEL_LABELS: Record<(typeof salesChannelValues)[number], string> = {
-  WHATSAPP: "WhatsApp",
   MOSTRADOR: "Mostrador",
-  OTRO: "Otro",
+  DELIVERY: "Delivery",
+  APPS: "Apps",
 };
 
 export function OrderForm({ onSuccess }: { onSuccess: (orderId: string) => void }) {
@@ -46,13 +47,15 @@ export function OrderForm({ onSuccess }: { onSuccess: (orderId: string) => void 
     defaultValues: {
       customerId: "",
       method: "EFECTIVO",
-      channel: "WHATSAPP",
+      channel: "MOSTRADOR",
+      channelSource: "",
       items: [{ productId: "", quantity: 1 }],
     },
   });
 
   const { fields, append, remove } = useFieldArray({ control: form.control, name: "items" });
   const items = useWatch({ control: form.control, name: "items" });
+  const channel = useWatch({ control: form.control, name: "channel" });
 
   const total = items.reduce((sum, item) => {
     const product = products?.find((p) => p.id === item.productId);
@@ -140,6 +143,23 @@ export function OrderForm({ onSuccess }: { onSuccess: (orderId: string) => void 
             />
           </Field>
         </div>
+
+        {channel === "APPS" && (
+          <Field>
+            <FieldLabel htmlFor="channelSource">Plataforma</FieldLabel>
+            <Input
+              id="channelSource"
+              list="apps-source-suggestions"
+              placeholder="PedidosYa, Rappi…"
+              {...form.register("channelSource")}
+            />
+            <datalist id="apps-source-suggestions">
+              {appsSourceSuggestions.map((source) => (
+                <option key={source} value={source} />
+              ))}
+            </datalist>
+          </Field>
+        )}
 
         <Field>
           <FieldLabel>Productos</FieldLabel>
