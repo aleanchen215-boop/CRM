@@ -130,7 +130,9 @@ export const ordersRouter = router({
         }
 
         // Al despachar se cumple la reserva: sale stock real y queda registrado el movimiento.
-        if (input.status === "ENVIADO" && !FULFILLED_STATUSES.has(current.status)) {
+        // Se dispara al entrar a CUALQUIER estado "cumplido" (Enviado o Entregado) viniendo
+        // de uno que no lo era — para no depender de que el pedido pase por Enviado primero.
+        if (FULFILLED_STATUSES.has(input.status) && !FULFILLED_STATUSES.has(current.status)) {
           for (const item of current.items) {
             await tx.product.update({
               where: { id: item.productId },
