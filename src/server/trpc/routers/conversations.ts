@@ -5,8 +5,12 @@ import { sendWhatsappTextMessage } from "@/server/integrations/whatsapp/client";
 import { requirePermission, router } from "@/server/trpc/trpc";
 
 export const conversationsRouter = router({
+  // Las cerradas no aparecen en el inbox (no se borran de la base, solo se
+  // ocultan de esta vista) — el historial sigue accesible por link directo
+  // si hace falta consultarlo.
   list: requirePermission("conversations:read").query(async ({ ctx }) => {
     return ctx.prisma.conversation.findMany({
+      where: { status: { not: "CERRADA" } },
       orderBy: { lastMessageAt: "desc" },
       include: { customer: true, _count: { select: { messages: true } } },
     });
