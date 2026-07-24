@@ -17,11 +17,13 @@ const openai = new OpenAI({
 // tool-calling. Configurable por env var por si conviene cambiarlo.
 const MODEL = process.env.OPENROUTER_MODEL ?? "openai/gpt-oss-20b:free";
 
-const DEFAULT_SYSTEM_PROMPT = `Sos el asistente de ventas por WhatsApp de un negocio de comida. Respondé breve, cordial y directo, como un vendedor profesional real.
+const DEFAULT_SYSTEM_PROMPT = `Sos el asistente de ventas por WhatsApp de una pizzería que vende pizzas y empanadas. Respondé breve, cordial y directo, como un vendedor profesional real.
 
 Reglas importantes:
+- El catálogo tiene dos categorías: Pizzas y Empanadas. Cada producto pertenece a una sola — fijate en el campo "categoria" que te devuelve buscar_productos antes de decir si algo es pizza o empanada, no lo asumas por el nombre.
+- También hay promociones (combos): algunas incluyen productos fijos puntuales, otras dejan elegir sabores dentro de una categoría (ej. "6 empanadas a elección"), y otras combinan ambos. Usá buscar_promociones para ofrecerlas cuando tenga sentido o el cliente pregunte por combos/promos.
 - Todos los precios están en pesos argentinos (ARS). Nunca menciones otra moneda (dólares, pesos colombianos, etc.).
-- Nunca inventes precios ni nombres de productos: usá la herramienta buscar_productos para confirmarlos antes de responder sobre precio o disponibilidad.
+- Nunca inventes precios ni nombres de productos: usá buscar_productos (o buscar_promociones) para confirmarlos antes de responder sobre precio o disponibilidad.
 - Si el cliente quiere hacer un pedido, preguntale si es para retirar por el local o para que se lo enviemos, antes de avanzar.
 - Si no sabés algo con certeza, decilo — no inventes.`;
 
@@ -30,7 +32,7 @@ const SEARCH_PRODUCTS_TOOL: ChatCompletionTool = {
   function: {
     name: "buscar_productos",
     description:
-      "Busca productos del catálogo por nombre para conocer su precio exacto. Usar siempre antes de mencionar un precio o confirmar disponibilidad.",
+      "Busca productos del catálogo (pizzas o empanadas) por nombre para conocer su precio y categoría exactos. Usar siempre antes de mencionar un precio o confirmar disponibilidad.",
     parameters: {
       type: "object",
       properties: {
@@ -38,6 +40,16 @@ const SEARCH_PRODUCTS_TOOL: ChatCompletionTool = {
       },
       required: ["query"],
     },
+  },
+};
+
+const SEARCH_PROMOTIONS_TOOL: ChatCompletionTool = {
+  type: "function",
+  function: {
+    name: "buscar_promociones",
+    description:
+      "Lista las promociones/combos activos con su precio y qué incluyen. Usar cuando el cliente pregunte por promos, combos, o cuando convenga ofrecer una.",
+    parameters: { type: "object", properties: {} },
   },
 };
 
@@ -50,10 +62,16 @@ function normalize(text: string) {
     .toLowerCase();
 }
 
-async function searchProducts(query: string): Promise<{ nombre: string; precio_ars: string }[]> {
+function formatArs(value: number) {
+  return `$${value.toLocaleString("es-AR")}`;
+}
+
+async function searchProducts(
+  query: string,
+): Promise<{ nombre: string; categoria: string; precio_ars: string }[]> {
   // Escala chica (decenas de productos): traer todo y filtrar en memoria es
   // más simple y más tolerante que armar el WHERE ideal en SQL.
-  const products = await prisma.product.findMany({ take: 200 });
+  const products = await prisma.product.findMany({ take: 200, include: { category: true } });
 
   const normalizedQuery = normalize(query);
   const words = normalizedQuery.split(/\s+/).filter((word) => word.length > 2);
@@ -65,7 +83,28 @@ async function searchProducts(query: string): Promise<{ nombre: string; precio_a
 
   return matches.slice(0, 10).map((product) => ({
     nombre: product.name,
-    precio_ars: `$${Number(product.price).toLocaleString("es-AR")}`,
+    categoria: product.category?.name ?? "Sin categoría",
+    precio_ars: formatArs(Number(product.price)),
+  }));
+}
+
+async function listPromotions(): Promise<
+  { nombre: string; precio_ars: string; incluye: string[] }[]
+> {
+  const promotions = await prisma.promotion.findMany({
+    where: { active: true },
+    include: { items: { include: { product: true, category: true } } },
+    take: 20,
+  });
+
+  return promotions.map((promotion) => ({
+    nombre: promotion.name,
+    precio_ars: formatArs(Number(promotion.price)),
+    incluye: promotion.items.map((item) =>
+      item.kind === "FIJO"
+        ? `${item.quantity}x ${item.product?.name ?? "producto"}`
+        : `${item.quantity}x a elección entre ${item.category?.name ?? "una categoría"}`,
+    ),
   }));
 }
 
@@ -93,7 +132,7 @@ export async function generateAiReply(
     const completion = await openai.chat.completions.create({
       model: MODEL,
       messages,
-      tools: [SEARCH_PRODUCTS_TOOL],
+      tools: [SEARCH_PRODUCTS_TOOL, SEARCH_PROMOTIONS_TOOL],
     });
 
     totalTokens += completion.usage?.total_tokens ?? 0;
@@ -115,6 +154,8 @@ export async function generateAiReply(
         if (call.function.name === "buscar_productos") {
           const args = JSON.parse(call.function.arguments) as { query: string };
           output = JSON.stringify(await searchProducts(args.query));
+        } else if (call.function.name === "buscar_promociones") {
+          output = JSON.stringify(await listPromotions());
         }
       } catch {
         output = "[]";

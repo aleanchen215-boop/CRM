@@ -29,6 +29,10 @@ async function resolveSupplierId(tx: Prisma.TransactionClient, name?: string) {
 }
 
 export const productsRouter = router({
+  categories: requirePermission("products:read").query(async ({ ctx }) => {
+    return ctx.prisma.productCategory.findMany({ orderBy: { name: "asc" } });
+  }),
+
   list: requirePermission("products:read")
     .input(z.object({ search: z.string().trim().optional() }))
     .query(async ({ ctx, input }) => {
@@ -66,9 +70,11 @@ export const productsRouter = router({
   create: requirePermission("products:write")
     .input(productInputSchema)
     .mutation(async ({ ctx, input }) => {
-      const existing = await ctx.prisma.product.findUnique({ where: { sku: input.sku } });
-      if (existing) {
-        throw new TRPCError({ code: "CONFLICT", message: "Ya existe un producto con ese SKU." });
+      if (input.sku) {
+        const existing = await ctx.prisma.product.findUnique({ where: { sku: input.sku } });
+        if (existing) {
+          throw new TRPCError({ code: "CONFLICT", message: "Ya existe un producto con ese SKU." });
+        }
       }
 
       const product = await ctx.prisma.$transaction(async (tx) => {
@@ -79,7 +85,7 @@ export const productsRouter = router({
 
         return tx.product.create({
           data: {
-            sku: input.sku,
+            sku: input.sku || undefined,
             internalCode: input.internalCode || undefined,
             name: input.name,
             categoryId,
@@ -108,6 +114,7 @@ export const productsRouter = router({
           where: { id },
           data: {
             ...data,
+            sku: data.sku || null,
             internalCode: data.internalCode || undefined,
             ...(categoryId ? { categoryId } : {}),
             ...(supplierId ? { supplierId } : {}),

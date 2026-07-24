@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 export const productInputSchema = z.object({
-  sku: z.string().trim().min(1, "Requerido"),
+  sku: z.string().trim().optional(),
   internalCode: z.string().trim().optional(),
   name: z.string().trim().min(1, "Requerido"),
   category: z.string().trim().optional(),

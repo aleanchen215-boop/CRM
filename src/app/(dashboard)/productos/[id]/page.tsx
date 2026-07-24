@@ -52,7 +52,7 @@ export default function ProductDetailPage({
             mode="edit"
             productId={product.id}
             defaultValues={{
-              sku: product.sku,
+              sku: product.sku ?? "",
               internalCode: product.internalCode ?? "",
               name: product.name,
               category: product.category?.name ?? "",

@@ -86,7 +86,7 @@ export function ProductForm(props: ProductFormProps) {
             <FieldError errors={[form.formState.errors.name]} />
           </Field>
           <Field>
-            <FieldLabel htmlFor="sku">SKU</FieldLabel>
+            <FieldLabel htmlFor="sku">SKU (opcional)</FieldLabel>
             <Input id="sku" {...form.register("sku")} />
             <FieldError errors={[form.formState.errors.sku]} />
           </Field>
