@@ -22,10 +22,29 @@ export const orderStatusValues = [
   "CANCELADO",
 ] as const;
 
-export const orderItemInputSchema = z.object({
+export const productItemInputSchema = z.object({
+  kind: z.literal("PRODUCTO"),
   productId: z.string().min(1, "Elegí un producto"),
   quantity: z.coerce.number().int().positive("Tiene que ser mayor a 0"),
 });
+
+// Para cada renglón VARIABLE de la promo (ej. "6 empanadas a elección"),
+// productIds tiene que traer exactamente esa cantidad de productos elegidos.
+export const promotionItemSelectionSchema = z.object({
+  promotionItemId: z.string(),
+  productIds: z.array(z.string().min(1)).min(1),
+});
+
+export const promotionOrderItemInputSchema = z.object({
+  kind: z.literal("PROMOCION"),
+  promotionId: z.string().min(1, "Elegí una promoción"),
+  variableSelections: z.array(promotionItemSelectionSchema),
+});
+
+export const orderItemInputSchema = z.discriminatedUnion("kind", [
+  productItemInputSchema,
+  promotionOrderItemInputSchema,
+]);
 
 export const orderInputSchema = z.object({
   customerId: z.string().min(1, "Elegí un cliente"),

@@ -1,21 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { Controller, useFieldArray, useForm, useWatch, type Resolver } from "react-hook-form";
+import { Controller, useFieldArray, useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
-import { ArrowLeft, Plus, Trash2, UserPlus } from "lucide-react";
-import {
-  orderInputSchema,
-  paymentMethodValues,
-  salesChannelValues,
-  type OrderInput,
-} from "@/lib/validation/order";
+import { ArrowLeft, Plus, UserPlus } from "lucide-react";
+import { paymentMethodValues, salesChannelValues, type OrderInput } from "@/lib/validation/order";
+import type { OrderFormValues } from "@/components/orders/order-form-types";
 import { trpc } from "@/lib/trpc/client";
 import { formatCurrency } from "@/lib/format";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Field, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import {
   Select,
   SelectContent,
@@ -31,6 +25,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { CustomerForm } from "@/components/customers/customer-form";
+import { OrderItemRow } from "@/components/orders/order-item-row";
 
 const METHOD_LABELS: Record<(typeof paymentMethodValues)[number], string> = {
   MERCADO_PAGO: "Mercado Pago",
@@ -47,6 +42,37 @@ const CHANNEL_LABELS: Record<(typeof salesChannelValues)[number], string> = {
 
 const NEW_CUSTOMER_VALUE = "__new__";
 
+function emptyRow(): OrderFormValues["items"][number] {
+  return { rowType: "PIZZA", productId: "", quantity: 1, promotionId: "", variableSelections: [] };
+}
+
+// Valida a mano (no con zodResolver): la forma de cada renglón en el form
+// es más simple que la unión discriminada que espera la API, así que acá
+// se chequea lo mínimo y se transforma recién al enviar.
+function validateRows(rows: OrderFormValues["items"]): string | null {
+  for (const row of rows) {
+    if (row.rowType === "PROMOCION") {
+      if (!row.promotionId) return "Elegí una promoción en todos los renglones.";
+      for (const selection of row.variableSelections) {
+        if (selection.productIds.some((id) => !id)) {
+          return "Completá todos los sabores a elección antes de crear el pedido.";
+        }
+      }
+    } else if (!row.productId) {
+      return "Elegí un producto en todos los renglones.";
+    }
+  }
+  return null;
+}
+
+function toApiItems(rows: OrderFormValues["items"]): OrderInput["items"] {
+  return rows.map((row) =>
+    row.rowType === "PROMOCION"
+      ? { kind: "PROMOCION" as const, promotionId: row.promotionId, variableSelections: row.variableSelections }
+      : { kind: "PRODUCTO" as const, productId: row.productId, quantity: row.quantity },
+  );
+}
+
 export function OrderForm({
   channel,
   channelSource,
@@ -61,25 +87,27 @@ export function OrderForm({
   const utils = trpc.useUtils();
   const { data: customers } = trpc.customers.list.useQuery({});
   const { data: products } = trpc.products.list.useQuery({});
+  const { data: promotions } = trpc.promotions.list.useQuery();
   const [newCustomerOpen, setNewCustomerOpen] = useState(false);
 
-  const form = useForm<OrderInput>({
-    resolver: zodResolver(orderInputSchema) as Resolver<OrderInput>,
+  const form = useForm<OrderFormValues>({
     defaultValues: {
       customerId: "",
       method: "EFECTIVO",
-      channel,
-      channelSource,
-      items: [{ productId: "", quantity: 1 }],
+      items: [emptyRow()],
     },
   });
 
   const { fields, append, remove } = useFieldArray({ control: form.control, name: "items" });
-  const items = useWatch({ control: form.control, name: "items" });
+  const watchedItems = useWatch({ control: form.control, name: "items" });
 
-  const total = items.reduce((sum, item) => {
-    const product = products?.find((p) => p.id === item.productId);
-    return sum + (product ? product.price * (item.quantity || 0) : 0);
+  const total = (watchedItems ?? []).reduce((sum, row) => {
+    if (row.rowType === "PROMOCION") {
+      const promo = promotions?.find((p) => p.id === row.promotionId);
+      return sum + (promo?.price ?? 0);
+    }
+    const product = products?.find((p) => p.id === row.productId);
+    return sum + (product ? product.price * (row.quantity || 0) : 0);
   }, 0);
 
   const create = trpc.orders.create.useMutation({
@@ -91,7 +119,24 @@ export function OrderForm({
     onError: (error) => toast.error(error.message),
   });
 
-  const onSubmit = form.handleSubmit((values) => create.mutate(values));
+  const onSubmit = form.handleSubmit((values) => {
+    if (!values.customerId) {
+      toast.error("Elegí un cliente.");
+      return;
+    }
+    const error = validateRows(values.items);
+    if (error) {
+      toast.error(error);
+      return;
+    }
+    create.mutate({
+      customerId: values.customerId,
+      method: values.method,
+      channel,
+      channelSource,
+      items: toApiItems(values.items),
+    });
+  });
 
   return (
     <>
@@ -148,7 +193,6 @@ export function OrderForm({
                 </Select>
               )}
             />
-            <FieldError errors={[form.formState.errors.customerId]} />
           </Field>
 
           <Field>
@@ -179,60 +223,24 @@ export function OrderForm({
             <FieldLabel>Productos</FieldLabel>
             <div className="flex flex-col gap-2">
               {fields.map((field, index) => (
-                <div key={field.id} className="flex items-start gap-2">
-                  <Controller
-                    control={form.control}
-                    name={`items.${index}.productId`}
-                    render={({ field: selectField }) => (
-                      <Select value={selectField.value} onValueChange={selectField.onChange}>
-                        <SelectTrigger className="flex-1">
-                          <SelectValue placeholder="Producto…">
-                            {(id: string) => {
-                              const product = products?.find((p) => p.id === id);
-                              return product
-                                ? `${product.name} (${formatCurrency(product.price)})`
-                                : id;
-                            }}
-                          </SelectValue>
-                        </SelectTrigger>
-                        <SelectContent>
-                          {products?.map((product) => (
-                            <SelectItem key={product.id} value={product.id}>
-                              {product.name} ({formatCurrency(product.price)})
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    )}
-                  />
-                  <Input
-                    type="number"
-                    min={1}
-                    className="w-20"
-                    {...form.register(`items.${index}.quantity`)}
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    disabled={fields.length === 1}
-                    onClick={() => remove(index)}
-                  >
-                    <Trash2 className="size-4" />
-                  </Button>
-                </div>
+                <OrderItemRow
+                  key={field.id}
+                  index={index}
+                  control={form.control}
+                  onRemove={() => remove(index)}
+                  canRemove={fields.length > 1}
+                />
               ))}
             </div>
-            <FieldError errors={[form.formState.errors.items?.root, form.formState.errors.items]} />
             <Button
               type="button"
               variant="outline"
               size="sm"
               className="self-start"
-              onClick={() => append({ productId: "", quantity: 1 })}
+              onClick={() => append(emptyRow())}
             >
               <Plus />
-              Agregar producto
+              Agregar renglón
             </Button>
           </Field>
 

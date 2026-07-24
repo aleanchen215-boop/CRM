@@ -24,6 +24,36 @@ const CHANNEL_LABELS: Record<string, string> = {
   APPS: "Apps",
 };
 
+type Selection =
+  | { type: "FIJO"; nombre: string; cantidad: number }
+  | { type: "VARIABLE"; categoria: string; productos: { productId: string; nombre: string }[] };
+
+function itemLabel(item: {
+  product: { name: string } | null;
+  promotion: { name: string } | null;
+}) {
+  return item.product?.name ?? item.promotion?.name ?? "—";
+}
+
+function ItemDetail({ selections }: { selections: unknown }) {
+  if (!Array.isArray(selections) || selections.length === 0) return null;
+  return (
+    <ul className="mt-1 flex flex-col gap-0.5 text-xs text-muted-foreground">
+      {(selections as Selection[]).map((selection, index) =>
+        selection.type === "FIJO" ? (
+          <li key={index}>
+            {selection.cantidad}x {selection.nombre}
+          </li>
+        ) : (
+          <li key={index}>
+            {selection.categoria} a elección: {selection.productos.map((p) => p.nombre).join(", ")}
+          </li>
+        ),
+      )}
+    </ul>
+  );
+}
+
 export default function OrderDetailPage({
   params,
 }: {
@@ -110,7 +140,10 @@ export default function OrderDetailPage({
             <tbody>
               {order.items.map((item) => (
                 <tr key={item.id} className="border-b last:border-0">
-                  <td className="py-2">{item.product.name}</td>
+                  <td className="py-2">
+                    {itemLabel(item)}
+                    <ItemDetail selections={item.selections} />
+                  </td>
                   <td className="py-2">{item.quantity}</td>
                   <td className="py-2 text-right">{formatCurrency(item.unitPrice)}</td>
                   <td className="py-2 text-right">
