@@ -55,7 +55,7 @@ export const CREATE_ORDER_TOOL: ChatCompletionTool = {
                 type: "array",
                 items: { type: "string" },
                 description:
-                  "Solo si nombre es una promoción con partes a elección: un nombre de producto por cada unidad elegida (ej. si la promo trae 3 empanadas a elección, poné 3 nombres de empanadas acá, repetidos si son del mismo sabor).",
+                  "SOLO si nombre es el nombre exacto de una PROMOCIÓN (tal como lo devolvió buscar_promociones) que tiene partes a elección: un nombre de producto por cada unidad elegida. Si nombre es un producto suelto (no una promo), NUNCA uses este campo — usá cantidad en cambio, aunque el cliente haya pedido varias unidades del mismo sabor (ej. 6 empanadas de jamón y queso sueltas = nombre: \"Jamon y queso\", cantidad: 6 — NO nombre: \"6 empanadas a elección\" con sabores repetidos).",
               },
             },
             required: ["nombre"],
@@ -149,16 +149,33 @@ export async function handleCreateOrder(
 
     if (!promotion) {
       const { quantity: quantityFromName, rest: nameForMatch } = extractLeadingQuantity(item.nombre);
-      const product =
+      let product =
         findBestMatch(products, (p) => p.name, nameForMatch) ??
         findBestMatch(products, (p) => p.name, item.nombre);
+      let quantity = item.cantidad && item.cantidad > 0 ? item.cantidad : (quantityFromName ?? 1);
+
+      // El modelo a veces manda un producto suelto con cantidad > 1 como si
+      // fuera una promo "a elección" (nombre inventado tipo "6 Empanadas a
+      // elección" + un array de `sabores` repetido) en vez de usar
+      // simplemente `cantidad`. Si el nombre no matcheó pero todos los
+      // sabores apuntan al mismo producto, lo tomamos como ese producto con
+      // esa cantidad en vez de fallar.
+      if (!product && item.sabores && item.sabores.length > 0) {
+        const saborProducts = item.sabores.map((sabor) => findBestMatch(products, (p) => p.name, sabor));
+        const first = saborProducts[0];
+        if (first && saborProducts.every((p) => p?.id === first.id)) {
+          product = first;
+          quantity = item.sabores.length;
+        }
+      }
+
       if (!product) {
         return `No encontré "${item.nombre}" en el catálogo ni en las promociones — confirmá el nombre exacto con el cliente antes de reintentar.`;
       }
       orderItems.push({
         kind: "PRODUCTO",
         productId: product.id,
-        quantity: item.cantidad && item.cantidad > 0 ? item.cantidad : (quantityFromName ?? 1),
+        quantity,
       });
       continue;
     }
