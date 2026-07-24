@@ -3,10 +3,16 @@ import { z } from "zod";
 import type { Prisma } from "@/generated/prisma/client";
 import { orderInputSchema, orderStatusUpdateSchema, type OrderInput } from "@/lib/validation/order";
 import { requirePermission, router } from "@/server/trpc/trpc";
+import { sendWhatsappTextMessage } from "@/server/integrations/whatsapp/client";
 
 function toNumber<T extends { total: unknown }>(order: T) {
   return { ...order, total: Number(order.total) };
 }
+
+const NOTIFICATION_MESSAGES = {
+  LISTO: "¡Hola! Tu pedido ya está listo para retirar por el local. Te esperamos 😊",
+  EN_CAMINO: "¡Hola! Tu pedido ya salió con el cadete, en breve llega a tu casa 🛵",
+} as const;
 
 type OrderItemInput = OrderInput["items"][number];
 
@@ -161,5 +167,54 @@ export const ordersRouter = router({
       });
 
       return toNumber(order);
+    }),
+
+  notifyStatus: requirePermission("orders:write")
+    .input(z.object({ orderId: z.string(), kind: z.enum(["LISTO", "EN_CAMINO"]) }))
+    .mutation(async ({ ctx, input }) => {
+      const order = await ctx.prisma.order.findUnique({
+        where: { id: input.orderId },
+        include: { customer: true },
+      });
+      if (!order) throw new TRPCError({ code: "NOT_FOUND" });
+
+      const content = NOTIFICATION_MESSAGES[input.kind];
+
+      let whatsappMessageId: string;
+      try {
+        whatsappMessageId = await sendWhatsappTextMessage(order.customer.whatsapp, content);
+      } catch (error) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: error instanceof Error ? error.message : "No se pudo enviar el WhatsApp.",
+        });
+      }
+
+      let conversation = await ctx.prisma.conversation.findFirst({
+        where: { customerId: order.customerId, status: { not: "CERRADA" } },
+        orderBy: { lastMessageAt: "desc" },
+      });
+      if (!conversation) {
+        conversation = await ctx.prisma.conversation.create({
+          data: { customerId: order.customerId, status: "ABIERTA", aiActive: true },
+        });
+      }
+
+      await ctx.prisma.message.create({
+        data: {
+          conversationId: conversation.id,
+          sender: "IA",
+          content,
+          type: "TEXTO",
+          approved: true,
+          whatsappMessageId: whatsappMessageId || undefined,
+        },
+      });
+      await ctx.prisma.conversation.update({
+        where: { id: conversation.id },
+        data: { lastMessageAt: new Date() },
+      });
+
+      return { ok: true };
     }),
 });

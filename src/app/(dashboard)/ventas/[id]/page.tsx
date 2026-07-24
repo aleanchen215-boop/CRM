@@ -10,6 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { OrderStatusBadge } from "@/components/orders/order-status-badge";
 import { OrderStatusSelect } from "@/components/orders/order-status-select";
+import { OrderNotifyButton } from "@/components/orders/order-notify-button";
 
 const METHOD_LABELS: Record<string, string> = {
   MERCADO_PAGO: "Mercado Pago",
@@ -100,6 +101,7 @@ export default function OrderDetailPage({
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <OrderNotifyButton orderId={order.id} channel={order.channel} />
           <OrderStatusSelect orderId={order.id} status={order.status} />
           <Button variant="outline" size="sm" onClick={() => window.print()}>
             <Printer />

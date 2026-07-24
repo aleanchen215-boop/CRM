@@ -14,6 +14,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { OrderFormValues, OrderRowValue } from "@/components/orders/order-form-types";
+import { VariableSlotPicker } from "@/components/orders/variable-slot-picker";
 
 const ROW_TYPE_LABELS: Record<OrderRowValue["rowType"], string> = {
   PIZZA: "Pizza",
@@ -179,55 +180,28 @@ export function OrderItemRow({
                       Incluye: {promoItem.quantity}x {promoItem.product?.name}
                     </p>
                   ) : (
-                    <div key={promoItem.id} className="flex flex-col gap-1.5">
-                      <p className="text-xs text-muted-foreground">
-                        {promoItem.category?.name} a elección ({promoItem.quantity})
-                      </p>
-                      <div className="flex flex-wrap gap-1.5">
-                        {Array.from({ length: promoItem.quantity }).map((_, slotIndex) => {
-                          const categoryProducts = products?.filter(
-                            (p) => p.categoryId === promoItem.categoryId,
-                          );
-                          const slotValue =
-                            row.variableSelections.find((s) => s.promotionItemId === promoItem.id)
-                              ?.productIds[slotIndex] ?? "";
-                          return (
-                            <Select
-                              key={slotIndex}
-                              value={slotValue}
-                              onValueChange={(productId) => {
-                                const nextSelections = row.variableSelections.map((selection) =>
-                                  selection.promotionItemId === promoItem.id
-                                    ? {
-                                        ...selection,
-                                        productIds: selection.productIds.map((id, i) =>
-                                          i === slotIndex ? (productId ?? "") : id,
-                                        ),
-                                      }
-                                    : selection,
-                                );
-                                updateRow({ variableSelections: nextSelections });
-                              }}
-                            >
-                              <SelectTrigger className="w-40">
-                                <SelectValue placeholder={`Sabor ${slotIndex + 1}…`}>
-                                  {(id: string) =>
-                                    categoryProducts?.find((p) => p.id === id)?.name ?? id
-                                  }
-                                </SelectValue>
-                              </SelectTrigger>
-                              <SelectContent>
-                                {categoryProducts?.map((product) => (
-                                  <SelectItem key={product.id} value={product.id}>
-                                    {product.name}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          );
-                        })}
-                      </div>
-                    </div>
+                    <VariableSlotPicker
+                      key={promoItem.id}
+                      label={promoItem.category?.name ?? "Producto"}
+                      quantity={promoItem.quantity}
+                      products={
+                        products
+                          ?.filter((p) => p.categoryId === promoItem.categoryId)
+                          .map((p) => ({ id: p.id, name: p.name })) ?? []
+                      }
+                      productIds={
+                        row.variableSelections.find((s) => s.promotionItemId === promoItem.id)
+                          ?.productIds ?? []
+                      }
+                      onChange={(productIds) => {
+                        const nextSelections = row.variableSelections.map((selection) =>
+                          selection.promotionItemId === promoItem.id
+                            ? { ...selection, productIds }
+                            : selection,
+                        );
+                        updateRow({ variableSelections: nextSelections });
+                      }}
+                    />
                   ),
                 )}
               </div>
