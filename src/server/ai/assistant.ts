@@ -89,7 +89,7 @@ const SEARCH_PRODUCTS_TOOL: ChatCompletionTool = {
   function: {
     name: "buscar_productos",
     description:
-      "Busca productos del catálogo (pizzas o empanadas) por nombre para conocer su precio, categoría e ingredientes exactos. Usar siempre antes de mencionar un precio o confirmar disponibilidad, y también cuando el cliente pregunte qué lleva o qué ingredientes tiene un producto.",
+      "Busca productos del catálogo (pizzas o empanadas) por nombre O por código/SKU para conocer su precio, categoría e ingredientes exactos. Funciona igual si el cliente abrevia el sabor con el código (ej. \"EP\", \"JQ\") — pasá el texto tal cual lo escribió el cliente, no hace falta adivinar el nombre completo. Usar siempre antes de mencionar un precio o confirmar disponibilidad, y también cuando el cliente pregunte qué lleva o qué ingredientes tiene un producto.",
     parameters: {
       type: "object",
       properties: {
@@ -164,6 +164,23 @@ async function searchProducts(
   const products = await prisma.product.findMany({ take: 200, include: { category: true } });
 
   const normalizedQuery = normalize(query);
+
+  // Muchos clientes abrevian el sabor con el SKU tal cual está cargado en
+  // Productos (ej. "EP" por Entraña y Provoleta, "JQ" por Jamón y Queso) —
+  // se chequea primero porque un código de 2 letras no matchea nada por
+  // nombre y el modelo terminaba inventando un sabor que no existe.
+  const skuMatch = products.find((product) => product.sku && normalize(product.sku) === normalizedQuery);
+  if (skuMatch) {
+    return [
+      {
+        nombre: skuMatch.name,
+        categoria: skuMatch.category?.name ?? "Sin categoría",
+        precio_ars: formatArs(Number(skuMatch.price)),
+        ...(skuMatch.ingredients ? { ingredientes: skuMatch.ingredients } : {}),
+      },
+    ];
+  }
+
   const words = normalizedQuery.split(/\s+/).filter((word) => word.length > 2);
 
   const matches = products.filter((product) => {

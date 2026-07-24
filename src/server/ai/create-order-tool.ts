@@ -90,6 +90,23 @@ function normalize(text: string) {
     .trim();
 }
 
+// Un pedido PENDIENTE/CONFIRMADO de días anteriores NO cuenta como "el
+// pedido en curso" — si quedó sin cerrar de ayer y el cliente escribe hoy,
+// tiene que ser una venta nueva y separada, no seguir sumándole cosas a la
+// de ayer. Solo un pedido del mismo día calendario (huso horario del
+// negocio) se considera "en curso" a los efectos de crear_pedido/
+// modificar_pedido/cancelar_pedido.
+const BUSINESS_TIMEZONE = "America/Argentina/Buenos_Aires";
+const businessDayFormatter = new Intl.DateTimeFormat("en-CA", {
+  timeZone: BUSINESS_TIMEZONE,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+function isSameBusinessDay(a: Date, b: Date): boolean {
+  return businessDayFormatter.format(a) === businessDayFormatter.format(b);
+}
+
 function findBestMatch<T>(items: T[], name: (item: T) => string, query: string): T | undefined {
   const normalizedQuery = normalize(query);
   return (
@@ -97,6 +114,19 @@ function findBestMatch<T>(items: T[], name: (item: T) => string, query: string):
     items.find((item) => normalize(name(item)).includes(normalizedQuery)) ??
     items.find((item) => normalizedQuery.includes(normalize(name(item))))
   );
+}
+
+// Muchos clientes abrevian el sabor con el SKU (ej. "EP" por Entraña y
+// Provoleta) — se chequea primero porque el matching por nombre nunca
+// encuentra nada con un código de 2 letras, y sin esto el modelo terminaba
+// inventando un sabor que no existe en el catálogo.
+function findProductMatch<T extends { name: string; sku: string | null }>(
+  products: T[],
+  query: string,
+): T | undefined {
+  const normalizedQuery = normalize(query);
+  const skuMatch = products.find((product) => product.sku && normalize(product.sku) === normalizedQuery);
+  return skuMatch ?? findBestMatch(products, (p) => p.name, query);
 }
 
 // El modelo a veces mete la cantidad adentro del texto de "nombre" (ej.
@@ -163,9 +193,7 @@ async function resolveItemsForOrder(
 
     if (!promotion) {
       const { quantity: quantityFromName, rest: nameForMatch } = extractLeadingQuantity(item.nombre);
-      let product =
-        findBestMatch(products, (p) => p.name, nameForMatch) ??
-        findBestMatch(products, (p) => p.name, item.nombre);
+      let product = findProductMatch(products, nameForMatch) ?? findProductMatch(products, item.nombre);
       let quantity = item.cantidad && item.cantidad > 0 ? item.cantidad : (quantityFromName ?? 1);
 
       // El modelo a veces manda un producto suelto con cantidad > 1 como si
@@ -175,7 +203,7 @@ async function resolveItemsForOrder(
       // sabores apuntan al mismo producto, lo tomamos como ese producto con
       // esa cantidad en vez de fallar.
       if (!product && item.sabores && item.sabores.length > 0) {
-        const saborProducts = item.sabores.map((sabor) => findBestMatch(products, (p) => p.name, sabor));
+        const saborProducts = item.sabores.map((sabor) => findProductMatch(products, sabor));
         const first = saborProducts[0];
         if (first && saborProducts.every((p) => p?.id === first.id)) {
           product = first;
@@ -207,7 +235,7 @@ async function resolveItemsForOrder(
     );
 
     for (const sabor of item.sabores ?? []) {
-      const match = findBestMatch(products, (p) => p.name, sabor);
+      const match = findProductMatch(products, sabor);
       if (!match) {
         return { error: `No encontré el sabor "${sabor}" para la promo "${promotion.name}" — confirmá el nombre con el cliente antes de reintentar.` };
       }
@@ -247,9 +275,10 @@ export async function handleCreateOrder(
   // mismo cliente.
   const existingPending = await prisma.order.findFirst({
     where: { customerId, status: { in: ["PENDIENTE", "CONFIRMADO"] } },
+    orderBy: { createdAt: "desc" },
   });
-  if (existingPending) {
-    return "Este cliente YA tiene un pedido en curso (todavía no salió a entregar) — no crees uno nuevo. Para agregarle productos o cambiar el pago de ESE pedido, llamá a modificar_pedido en su lugar.";
+  if (existingPending && isSameBusinessDay(existingPending.createdAt, new Date())) {
+    return "Este cliente YA tiene un pedido en curso de hoy (todavía no salió a entregar) — no crees uno nuevo. Para agregarle productos o cambiar el pago de ESE pedido, llamá a modificar_pedido en su lugar.";
   }
 
   if (args.canal === "DELIVERY" && !args.direccion?.trim()) {
@@ -274,7 +303,11 @@ export async function handleCreateOrder(
     items: orderItems,
   });
 
-  const total = Number(order.total);
+  // Por si el modelo no detectó que los productos sueltos que pidió arman
+  // una promo (no siempre lo hace bien) — se corrige acá siempre, sin
+  // depender de que lo haya pedido explícitamente.
+  const reconciled = (await reconcilePromotions(order.id)) ?? order;
+  const total = Number(reconciled.total);
   const deliveryNote = deliveryFee ? ` (incluye $${deliveryFee.toLocaleString("es-AR")} de envío)` : "";
 
   if (metodoPago === "TRANSFERENCIA") {
@@ -403,8 +436,8 @@ export async function handleModifyOrder(customerId: string, args: ModifyOrderArg
     where: { customerId, status: { in: ["PENDIENTE", "CONFIRMADO"] } },
     orderBy: { createdAt: "desc" },
   });
-  if (!order) {
-    return "Este cliente no tiene ningún pedido en curso para modificar — si quiere pedir algo, hay que hacer un pedido nuevo con crear_pedido, no esta herramienta.";
+  if (!order || !isSameBusinessDay(order.createdAt, new Date())) {
+    return "Este cliente no tiene ningún pedido en curso de hoy para modificar — si quiere pedir algo, hay que hacer un pedido nuevo con crear_pedido, no esta herramienta.";
   }
 
   if (args.items && args.items.length > 0) {
@@ -472,7 +505,7 @@ export async function handleModifyOrder(customerId: string, args: ModifyOrderArg
 
     const removals = args.quitar
       .map((item) => {
-        const product = findBestMatch(products, (p) => p.name, item.nombre);
+        const product = findProductMatch(products, item.nombre);
         if (!product) return null;
 
         let quantity: number;
@@ -563,8 +596,8 @@ export async function handleCancelOrder(customerId: string): Promise<string> {
     where: { customerId, status: { in: ["PENDIENTE", "CONFIRMADO"] } },
     orderBy: { createdAt: "desc" },
   });
-  if (!order) {
-    return "Este cliente no tiene ningún pedido en curso para cancelar.";
+  if (!order || !isSameBusinessDay(order.createdAt, new Date())) {
+    return "Este cliente no tiene ningún pedido en curso de hoy para cancelar.";
   }
 
   const cancelled = await cancelPendingOrder(order.id);
