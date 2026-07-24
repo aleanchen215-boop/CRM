@@ -1,7 +1,12 @@
 import OpenAI from "openai";
 import type { ChatCompletionMessageParam, ChatCompletionTool } from "openai/resources/chat/completions";
 import { prisma } from "@/lib/prisma";
-import { CREATE_ORDER_TOOL, handleCreateOrder } from "@/server/ai/create-order-tool";
+import {
+  CREATE_ORDER_TOOL,
+  MODIFY_ORDER_TOOL,
+  handleCreateOrder,
+  handleModifyOrder,
+} from "@/server/ai/create-order-tool";
 
 // Vía OpenRouter (openrouter.ai) en vez de OpenAI directo, para poder usar
 // modelos gratuitos. La API es compatible con Chat Completions de OpenAI.
@@ -56,6 +61,8 @@ Cómo tomar un pedido (seguí este orden, una pregunta a la vez, sin agobiar):
 4. En cuanto el cliente te dé el ÚLTIMO dato que faltaba según el punto 3 (ej. responde "transferencia", o dice cuánto paga en efectivo, o confirma que retira), hacé un resumen cortito de todo el pedido (productos y cantidades, retira/dirección, método de pago) y preguntale "¿confirmás?" o similar — esta es la ÚNICA confirmación extra que podés pedir, no agregues otra vuelta más.
 5. En cuanto el cliente confirme ("sí", "dale", "confirmo", etc.), llamá a crear_pedido INMEDIATAMENTE, en esa misma respuesta — no le escribas "ya se lo vas a pasar", "un momento" o "dale, ahora lo creo": llamá la herramienta ya, en el mismo turno. Nunca dejes la llamada para "el próximo mensaje", y no vuelvas a pedir otra confirmación ni reabras la conversación de productos/promos en este punto.
 6. Si crear_pedido te devuelve un link de pago, pasáselo tal cual al cliente en tu respuesta (nunca inventes ni repitas un link viejo).
+
+Si el cliente YA hizo un pedido en esta conversación (ya llamaste a crear_pedido) y después de eso pide agregar algo más, pedir de nuevo el link de pago, o cambiar cómo paga: NUNCA le digas que no podés ayudarlo con eso. Usá la herramienta modificar_pedido (no crear_pedido de nuevo) — te va a avisar si el pedido ya no se puede tocar porque salió el cadete. Ejemplos: "quiero agregar 3 empanadas" → modificar_pedido con esas empanadas en items; "pasame el link de mercado pago" o "mejor pago por transferencia" → modificar_pedido con metodoPago: TRANSFERENCIA.
 
 Reglas para no trabarte en un loop de saludos (esto es CRÍTICO):
 - Mirá siempre el ÚLTIMO mensaje del cliente en la conversación y respondé específicamente a ESO, no un saludo genérico. Si ya se saludaron antes en esta conversación, no vuelvas a saludar — andá directo al punto.
@@ -219,7 +226,7 @@ export async function generateAiReply(
     const completion = await openai.chat.completions.create({
       model: MODEL,
       messages,
-      tools: [SEARCH_PRODUCTS_TOOL, SEARCH_PROMOTIONS_TOOL, CREATE_ORDER_TOOL],
+      tools: [SEARCH_PRODUCTS_TOOL, SEARCH_PROMOTIONS_TOOL, CREATE_ORDER_TOOL, MODIFY_ORDER_TOOL],
       // Bajo (no 0) para que siga las reglas del prompt de forma consistente
       // — a temperatura default el modelo variaba mucho de una corrida a
       // otra en el mismo punto de la conversación (a veces no llamaba a
@@ -257,6 +264,9 @@ export async function generateAiReply(
         } else if (call.function.name === "crear_pedido") {
           const args = JSON.parse(call.function.arguments);
           output = await handleCreateOrder(customerId, args);
+        } else if (call.function.name === "modificar_pedido") {
+          const args = JSON.parse(call.function.arguments);
+          output = await handleModifyOrder(customerId, args);
         }
       } catch (error) {
         output = error instanceof Error ? error.message : "[]";

@@ -1,6 +1,6 @@
 import type { ChatCompletionTool } from "openai/resources/chat/completions";
 import { prisma } from "@/lib/prisma";
-import { createOrder } from "@/server/orders/create-order";
+import { addItemsToOrder, createOrder, updatePendingOrderPayment } from "@/server/orders/create-order";
 import { createMercadoPagoPreference } from "@/server/integrations/mercadopago/client";
 import type { OrderInput } from "@/lib/validation/order";
 
@@ -124,14 +124,14 @@ interface CreateOrderArgs {
   }>;
 }
 
-export async function handleCreateOrder(
-  customerId: string,
-  args: CreateOrderArgs,
-): Promise<string> {
-  if (args.canal === "DELIVERY" && !args.direccion?.trim()) {
-    return "Para un pedido por envío hace falta la dirección de entrega — preguntásela al cliente antes de reintentar.";
-  }
+type ItemArg = { nombre: string; cantidad?: number; sabores?: string[] };
 
+// Compartido entre crear_pedido y modificar_pedido: mismo matching de
+// producto/promo/cantidad para los dos, así un arreglo acá (ej. el de
+// cantidad-adentro-del-nombre) no queda resuelto en un solo lugar.
+async function resolveItemsForOrder(
+  items: ItemArg[],
+): Promise<{ orderItems: OrderInput["items"] } | { error: string }> {
   const products = await prisma.product.findMany({ include: { category: true } });
   const promotions = await prisma.promotion.findMany({
     where: { active: true },
@@ -140,7 +140,7 @@ export async function handleCreateOrder(
 
   const orderItems: OrderInput["items"] = [];
 
-  for (const item of args.items) {
+  for (const item of items) {
     // Se prueba primero como promoción (nombres de combo suelen ser más
     // distintivos) y si no matchea se prueba como producto suelto — así el
     // modelo no tiene que decidir "tipo", que es justo el campo que un
@@ -170,7 +170,7 @@ export async function handleCreateOrder(
       }
 
       if (!product) {
-        return `No encontré "${item.nombre}" en el catálogo ni en las promociones — confirmá el nombre exacto con el cliente antes de reintentar.`;
+        return { error: `No encontré "${item.nombre}" en el catálogo ni en las promociones — confirmá el nombre exacto con el cliente antes de reintentar.` };
       }
       orderItems.push({
         kind: "PRODUCTO",
@@ -195,13 +195,13 @@ export async function handleCreateOrder(
     for (const sabor of item.sabores ?? []) {
       const match = findBestMatch(products, (p) => p.name, sabor);
       if (!match) {
-        return `No encontré el sabor "${sabor}" para la promo "${promotion.name}" — confirmá el nombre con el cliente antes de reintentar.`;
+        return { error: `No encontré el sabor "${sabor}" para la promo "${promotion.name}" — confirmá el nombre con el cliente antes de reintentar.` };
       }
       const slot = [...slots.values()].find(
         (entry) => entry.categoryId === match.categoryId && entry.chosen.length < entry.quantity,
       );
       if (!slot) {
-        return `"${sabor}" no corresponde a ninguna parte a elección disponible de la promo "${promotion.name}" (o ya se completó esa categoría) — confirmá con el cliente.`;
+        return { error: `"${sabor}" no corresponde a ninguna parte a elección disponible de la promo "${promotion.name}" (o ya se completó esa categoría) — confirmá con el cliente.` };
       }
       slot.chosen.push(match.id);
     }
@@ -210,13 +210,41 @@ export async function handleCreateOrder(
     for (const [promotionItemId, slot] of slots) {
       if (slot.chosen.length !== slot.quantity) {
         const categoryName = products.find((p) => p.categoryId === slot.categoryId)?.category?.name ?? "una categoría";
-        return `Para la promo "${promotion.name}" faltan confirmar ${slot.quantity} sabor(es) de "${categoryName}" — preguntáselo al cliente antes de reintentar.`;
+        return { error: `Para la promo "${promotion.name}" faltan confirmar ${slot.quantity} sabor(es) de "${categoryName}" — preguntáselo al cliente antes de reintentar.` };
       }
       variableSelections.push({ promotionItemId, productIds: slot.chosen });
     }
 
     orderItems.push({ kind: "PROMOCION", promotionId: promotion.id, variableSelections });
   }
+
+  return { orderItems };
+}
+
+export async function handleCreateOrder(
+  customerId: string,
+  args: CreateOrderArgs,
+): Promise<string> {
+  // Evita duplicar pedidos: si ya hay uno PENDIENTE de este cliente (ej. el
+  // cliente pide agregar algo después de confirmar), no se crea uno nuevo —
+  // hay que sumarlo al que ya existe con modificar_pedido en su lugar. Sin
+  // esta guarda el modelo a veces llamaba crear_pedido de nuevo en vez de
+  // modificar_pedido, dejando dos pedidos pendientes sueltos para el mismo
+  // cliente.
+  const existingPending = await prisma.order.findFirst({
+    where: { customerId, status: "PENDIENTE" },
+  });
+  if (existingPending) {
+    return "Este cliente YA tiene un pedido pendiente (todavía no se despachó) — no crees uno nuevo. Para agregarle productos o cambiar el pago de ESE pedido, llamá a modificar_pedido en su lugar.";
+  }
+
+  if (args.canal === "DELIVERY" && !args.direccion?.trim()) {
+    return "Para un pedido por envío hace falta la dirección de entrega — preguntásela al cliente antes de reintentar.";
+  }
+
+  const resolved = await resolveItemsForOrder(args.items);
+  if ("error" in resolved) return resolved.error;
+  const orderItems = resolved.orderItems;
 
   const metodoPago = args.metodoPago ?? "EFECTIVO";
   const deliveryFee = args.canal === "DELIVERY" ? DELIVERY_FEE : undefined;
@@ -251,4 +279,127 @@ export async function handleCreateOrder(
   }
 
   return `Pedido creado (total $${total.toLocaleString("es-AR")}${deliveryNote}), paga en efectivo sin vuelto.`;
+}
+
+export const MODIFY_ORDER_TOOL: ChatCompletionTool = {
+  type: "function",
+  function: {
+    name: "modificar_pedido",
+    description:
+      "Modifica el pedido PENDIENTE más reciente de este cliente: agrega productos/promos y/o cambia el método de pago. Usar cuando el cliente YA hizo un pedido en esta conversación y ahora quiere sumarle algo, pedir de nuevo el link de pago, o cambiar cómo paga — siempre que el pedido todavía no haya salido a entregar. Si no hay ningún pedido pendiente, esta herramienta te va a avisar; en ese caso decile al cliente que hagas un pedido nuevo con crear_pedido.",
+    parameters: {
+      type: "object",
+      properties: {
+        items: {
+          type: "array",
+          description:
+            "SOLO los productos/promos NUEVOS que el cliente pide agregar en su ÚLTIMO mensaje — se suman a lo que el pedido ya tenía, no lo reemplazan. Si en su último mensaje el cliente no pidió agregar nada nuevo (ej. solo cambia el método de pago o pide el link de pago de nuevo), omitir este campo por completo — NO repitas acá productos que ya se habían agregado antes en la conversación, porque se sumarían dos veces.",
+          items: {
+            type: "object",
+            properties: {
+              nombre: {
+                type: "string",
+                description:
+                  "Nombre exacto del producto o de la promoción, SIN la cantidad adentro. La cantidad va en el campo cantidad.",
+              },
+              cantidad: {
+                type: "number",
+                description: "Cuántas unidades. Omitir para promociones (siempre es 1).",
+              },
+              sabores: {
+                type: "array",
+                items: { type: "string" },
+                description: "Solo si nombre es una promoción con partes a elección.",
+              },
+            },
+            required: ["nombre"],
+          },
+        },
+        metodoPago: {
+          type: "string",
+          enum: ["EFECTIVO", "TRANSFERENCIA"],
+          description:
+            "Solo si el cliente cambia cómo va a pagar respecto de lo que ya tenía (ej. pidió el link de Mercado Pago, o dice que ahora paga distinto). Omitir si no cambia.",
+        },
+        pagaCon: {
+          type: "number",
+          description:
+            "Solo si metodoPago=EFECTIVO y aclara con cuánto paga (para el vuelto). Omitir si no aplica.",
+        },
+      },
+      required: [],
+    },
+  },
+};
+
+interface ModifyOrderArgs {
+  items?: ItemArg[];
+  metodoPago?: "EFECTIVO" | "TRANSFERENCIA";
+  pagaCon?: number;
+}
+
+export async function handleModifyOrder(customerId: string, args: ModifyOrderArgs): Promise<string> {
+  const order = await prisma.order.findFirst({
+    where: { customerId, status: "PENDIENTE" },
+    orderBy: { createdAt: "desc" },
+  });
+  if (!order) {
+    return "Este cliente no tiene ningún pedido pendiente para modificar — si quiere pedir algo, hay que hacer un pedido nuevo con crear_pedido, no esta herramienta.";
+  }
+
+  let total = Number(order.total);
+
+  if (args.items && args.items.length > 0) {
+    const resolved = await resolveItemsForOrder(args.items);
+    if ("error" in resolved) return resolved.error;
+
+    // El modelo a veces reenvía en `items` cosas que ya se habían agregado
+    // antes en la misma conversación (en vez de solo lo nuevo), lo que
+    // sumaría el mismo producto dos veces y cobraría de más. Si un
+    // producto/promo con la misma cantidad ya está en el pedido, no se
+    // vuelve a agregar.
+    const existingItems = await prisma.orderItem.findMany({ where: { orderId: order.id } });
+    const isAlreadyOnOrder = (item: OrderInput["items"][number]) =>
+      item.kind === "PRODUCTO"
+        ? existingItems.some((existing) => existing.productId === item.productId && existing.quantity === item.quantity)
+        : existingItems.some((existing) => existing.promotionId === item.promotionId);
+
+    const newItems = resolved.orderItems.filter((item) => !isAlreadyOnOrder(item));
+
+    if (newItems.length > 0) {
+      const updated = await addItemsToOrder(order.id, newItems);
+      if (!updated) {
+        return "Este pedido ya no se puede modificar (ya está en preparación o ya salió) — si el cliente quiere algo más, hay que hacer un pedido nuevo.";
+      }
+      total = Number(updated.total);
+    }
+  }
+
+  let method: string = order.method;
+  if (args.metodoPago && args.metodoPago !== order.method) {
+    const updated = await updatePendingOrderPayment(order.id, {
+      method: args.metodoPago,
+      changeFor: args.metodoPago === "EFECTIVO" ? (args.pagaCon ?? null) : null,
+    });
+    if (!updated) {
+      return "Este pedido ya no se puede modificar (ya está en preparación o ya salió).";
+    }
+    method = args.metodoPago;
+  } else if (args.pagaCon !== undefined && method === "EFECTIVO") {
+    await updatePendingOrderPayment(order.id, { changeFor: args.pagaCon });
+  }
+
+  const deliveryNote = order.deliveryFee
+    ? ` (incluye $${Number(order.deliveryFee).toLocaleString("es-AR")} de envío)`
+    : "";
+
+  if (method === "TRANSFERENCIA") {
+    const preference = await createMercadoPagoPreference(order.id, total);
+    if (preference) {
+      return `Pedido actualizado (nuevo total $${total.toLocaleString("es-AR")}${deliveryNote}). Pasale este link de pago al cliente para que transfiera con Mercado Pago: ${preference.initPoint}`;
+    }
+    return `Pedido actualizado (nuevo total $${total.toLocaleString("es-AR")}${deliveryNote}). Todavía no está configurado Mercado Pago.`;
+  }
+
+  return `Pedido actualizado. Nuevo total: $${total.toLocaleString("es-AR")}${deliveryNote}, paga en efectivo.`;
 }

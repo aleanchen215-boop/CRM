@@ -131,3 +131,50 @@ export async function createOrder(input: CreateOrderInput) {
     });
   });
 }
+
+// Permite sumar productos/promos a un pedido que el cliente ya hizo, mientras
+// siga PENDIENTE (todavía no salió el cadete ni se marcó en preparación) —
+// pensado para cuando el cliente por WhatsApp pide agregar algo a último
+// momento. Devuelve null si el pedido ya no está en un estado modificable.
+export async function addItemsToOrder(orderId: string, items: OrderInput["items"]) {
+  return prisma.$transaction(async (tx) => {
+    const order = await tx.order.findUnique({ where: { id: orderId } });
+    if (!order || order.status !== "PENDIENTE") return null;
+
+    let addedTotal = 0;
+    const itemsData: Prisma.OrderItemCreateManyOrderInput[] = [];
+    for (const item of items) {
+      const resolved = await resolveOrderItem(tx, item);
+      addedTotal += resolved.price;
+      itemsData.push(resolved.data);
+    }
+
+    await tx.orderItem.createMany({
+      data: itemsData.map((data) => ({ ...data, orderId })),
+    });
+
+    return tx.order.update({
+      where: { id: orderId },
+      data: { total: Number(order.total) + addedTotal },
+    });
+  });
+}
+
+// Cambia método de pago y/o el dato de vuelto de un pedido PENDIENTE (ej. el
+// cliente decide pagar por transferencia en vez de efectivo). Devuelve null
+// si el pedido ya no está en un estado modificable.
+export async function updatePendingOrderPayment(
+  orderId: string,
+  data: { method?: OrderInput["method"]; changeFor?: number | null },
+) {
+  const order = await prisma.order.findUnique({ where: { id: orderId } });
+  if (!order || order.status !== "PENDIENTE") return null;
+
+  return prisma.order.update({
+    where: { id: orderId },
+    data: {
+      method: data.method ?? order.method,
+      changeFor: data.changeFor,
+    },
+  });
+}
