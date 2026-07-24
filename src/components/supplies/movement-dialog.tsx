@@ -35,6 +35,10 @@ const TYPE_LABELS: Record<(typeof movementTypeValues)[number], string> = {
   AJUSTE: "Ajuste (fija la cantidad total)",
 };
 
+// La salida se registra sola cuando un pedido consume el insumo — acá solo
+// se carga entrada (compras) o ajuste (correcciones de conteo).
+const MANUAL_TYPE_VALUES = movementTypeValues.filter((type) => type !== "SALIDA");
+
 export function MovementDialog({ supplyId }: { supplyId: string }) {
   const [open, setOpen] = useState(false);
   const utils = trpc.useUtils();
@@ -83,7 +87,7 @@ export function MovementDialog({ supplyId }: { supplyId: string }) {
                       </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
-                      {movementTypeValues.map((type) => (
+                      {MANUAL_TYPE_VALUES.map((type) => (
                         <SelectItem key={type} value={type}>
                           {TYPE_LABELS[type]}
                         </SelectItem>
