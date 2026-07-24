@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 import type { ChatCompletionMessageParam, ChatCompletionTool } from "openai/resources/chat/completions";
 import { prisma } from "@/lib/prisma";
+import { CREATE_ORDER_TOOL, handleCreateOrder } from "@/server/ai/create-order-tool";
 
 // Vía OpenRouter (openrouter.ai) en vez de OpenAI directo, para poder usar
 // modelos gratuitos. La API es compatible con Chat Completions de OpenAI.
@@ -17,15 +18,24 @@ const openai = new OpenAI({
 // tool-calling. Configurable por env var por si conviene cambiarlo.
 const MODEL = process.env.OPENROUTER_MODEL ?? "openai/gpt-oss-20b:free";
 
-const DEFAULT_SYSTEM_PROMPT = `Sos el asistente de ventas por WhatsApp de una pizzería que vende pizzas y empanadas. Respondé breve, cordial y directo, como un vendedor profesional real.
+const DEFAULT_SYSTEM_PROMPT = `Sos quien atiende el WhatsApp de una pizzería que vende pizzas y empanadas. Escribís como una persona real charlando por WhatsApp, no como un bot: tono canchero y cordial, oraciones cortas, podés usar "dale", "genial", algún emoji suelto — pero sin exagerar ni sonar siempre igual. Variá cómo saludás y cómo confirmás cosas, no repitas las mismas frases hechas en cada mensaje.
 
-Reglas importantes:
-- El catálogo tiene dos categorías: Pizzas y Empanadas. Cada producto pertenece a una sola — fijate en el campo "categoria" que te devuelve buscar_productos antes de decir si algo es pizza o empanada, no lo asumas por el nombre.
-- También hay promociones (combos): algunas incluyen productos fijos puntuales, otras dejan elegir sabores dentro de una categoría (ej. "6 empanadas a elección"), y otras combinan ambos. Usá buscar_promociones para ofrecerlas cuando tenga sentido o el cliente pregunte por combos/promos.
-- Todos los precios están en pesos argentinos (ARS). Nunca menciones otra moneda (dólares, pesos colombianos, etc.).
-- Nunca inventes precios ni nombres de productos: usá buscar_productos (o buscar_promociones) para confirmarlos antes de responder sobre precio o disponibilidad.
-- Si el cliente quiere hacer un pedido, preguntale si es para retirar por el local o para que se lo enviemos, antes de avanzar.
-- Si no sabés algo con certeza, decilo — no inventes.`;
+Cómo manejar el catálogo:
+- Hay dos categorías: Pizzas y Empanadas. Cada producto pertenece a una sola — fijate en el campo "categoria" que te devuelve buscar_productos antes de decir si algo es pizza o empanada, no lo asumas por el nombre.
+- También hay promociones (combos): algunas incluyen productos fijos puntuales, otras dejan elegir sabores dentro de una categoría (ej. "6 empanadas a elección"), y otras combinan ambos. Usá buscar_promociones para ofrecerlas cuando tenga sentido o pregunten por combos/promos.
+- Todos los precios están en pesos argentinos (ARS). Nunca menciones otra moneda.
+- Nunca inventes precios ni nombres de productos: usá buscar_productos o buscar_promociones para confirmarlos antes de hablar de precio o disponibilidad.
+
+Cómo tomar un pedido (seguí este orden, una pregunta a la vez, sin agobiar):
+1. Confirmá qué productos/promos quiere, con cantidades y sabores si son variables.
+2. Preguntá si pasa a retirar por el local o si se lo mandamos por delivery.
+3. Preguntá cómo paga: efectivo o transferencia.
+   - Si es efectivo: preguntá con cuánto paga, para saber si hay que llevar vuelto (si dice que paga justo, no hace falta nada más).
+   - Si es transferencia: avisale que le vas a pasar un link de pago de Mercado Pago para que abone el total.
+4. Recién cuando tengas TODO confirmado (productos, retira o envío, método de pago, y el dato del vuelto si aplica), llamá a crear_pedido una sola vez. No lo llames antes de tener todos los datos.
+5. Si crear_pedido te devuelve un link de pago, pasáselo tal cual al cliente en tu respuesta.
+
+Si no sabés algo con certeza, decilo — no inventes.`;
 
 const SEARCH_PRODUCTS_TOOL: ChatCompletionTool = {
   type: "function",
@@ -117,6 +127,7 @@ export type ChatTurn = { role: "user" | "assistant"; content: string };
 
 export async function generateAiReply(
   history: ChatTurn[],
+  customerId: string,
 ): Promise<{ text: string; costTokens: number }> {
   const systemPrompt = await getActiveSystemPrompt();
 
@@ -126,17 +137,22 @@ export async function generateAiReply(
   ];
   let totalTokens = 0;
 
-  // Hasta 3 vueltas: una consulta de productos normalmente alcanza, pero
-  // dejamos margen por si necesita más de una búsqueda.
-  for (let round = 0; round < 3; round++) {
+  // Hasta 4 vueltas: buscar producto/promo y después crear el pedido
+  // normalmente entra, pero dejamos margen por si necesita más pasos.
+  for (let round = 0; round < 4; round++) {
     const completion = await openai.chat.completions.create({
       model: MODEL,
       messages,
-      tools: [SEARCH_PRODUCTS_TOOL, SEARCH_PROMOTIONS_TOOL],
+      tools: [SEARCH_PRODUCTS_TOOL, SEARCH_PROMOTIONS_TOOL, CREATE_ORDER_TOOL],
     });
 
     totalTokens += completion.usage?.total_tokens ?? 0;
     const message = completion.choices[0]?.message;
+    if (process.env.AI_DEBUG) {
+      console.log(`--- round ${round} --- finish_reason=${completion.choices[0]?.finish_reason}`);
+      console.log("content:", message?.content);
+      console.log("tool_calls:", JSON.stringify(message?.tool_calls));
+    }
 
     if (!message?.tool_calls || message.tool_calls.length === 0) {
       return {
@@ -156,10 +172,14 @@ export async function generateAiReply(
           output = JSON.stringify(await searchProducts(args.query));
         } else if (call.function.name === "buscar_promociones") {
           output = JSON.stringify(await listPromotions());
+        } else if (call.function.name === "crear_pedido") {
+          const args = JSON.parse(call.function.arguments);
+          output = await handleCreateOrder(customerId, args);
         }
-      } catch {
-        output = "[]";
+      } catch (error) {
+        output = error instanceof Error ? error.message : "[]";
       }
+      if (process.env.AI_DEBUG) console.log(`  tool ${call.function.name} ->`, output);
       messages.push({ role: "tool", tool_call_id: call.id, content: output });
     }
   }

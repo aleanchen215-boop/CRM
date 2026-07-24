@@ -5,7 +5,7 @@ import { sendWhatsappTextMessage } from "@/server/integrations/whatsapp/client";
 import { generateAiReply, type ChatTurn } from "@/server/ai/assistant";
 import type { YCloudInboundMessageEvent } from "@/server/integrations/whatsapp/types";
 
-async function respondWithAi(conversationId: string, customerWhatsapp: string) {
+async function respondWithAi(conversationId: string, customerId: string, customerWhatsapp: string) {
   const recentMessages = await prisma.message.findMany({
     where: { conversationId },
     orderBy: { createdAt: "asc" },
@@ -18,7 +18,7 @@ async function respondWithAi(conversationId: string, customerWhatsapp: string) {
   }));
 
   try {
-    const { text, costTokens } = await generateAiReply(history);
+    const { text, costTokens } = await generateAiReply(history, customerId);
     const whatsappMessageId = await sendWhatsappTextMessage(customerWhatsapp, text);
 
     const message = await prisma.message.create({
@@ -105,7 +105,7 @@ export async function POST(request: Request) {
       // no arriesgar un timeout del webhook mientras OpenAI/WhatsApp responden.
       if (conversation.aiActive) {
         const conversationId = conversation.id;
-        after(() => respondWithAi(conversationId, inbound.from));
+        after(() => respondWithAi(conversationId, customer.id, inbound.from));
       }
     }
   }
