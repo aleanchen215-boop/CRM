@@ -6,6 +6,7 @@ import {
   cancelPendingOrder,
   createOrder,
   reconcilePromotions,
+  removeItemsFromOrder,
   updatePendingOrderChannel,
   updatePendingOrderNotes,
   updatePendingOrderPayment,
@@ -300,7 +301,7 @@ export const MODIFY_ORDER_TOOL: ChatCompletionTool = {
   function: {
     name: "modificar_pedido",
     description:
-      "Modifica el pedido PENDIENTE más reciente de este cliente: agrega productos/promos y/o cambia el método de pago. Usar cuando el cliente YA hizo un pedido en esta conversación y ahora quiere sumarle algo, pedir de nuevo el link de pago, o cambiar cómo paga — siempre que el pedido todavía no haya salido a entregar. Si no hay ningún pedido pendiente, esta herramienta te va a avisar; en ese caso decile al cliente que hagas un pedido nuevo con crear_pedido.",
+      "Modifica el pedido PENDIENTE más reciente de este cliente: agrega o QUITA productos, y/o cambia el método de pago. Usar cuando el cliente YA hizo un pedido en esta conversación y ahora quiere sumarle algo, sacarle o reducir algo, pedir de nuevo el link de pago, o cambiar cómo paga — siempre que el pedido todavía no haya salido a entregar. Si al agregar o quitar algo la combinación resultante arma una promo, el sistema la aplica solo. Si no hay ningún pedido pendiente, esta herramienta te va a avisar; en ese caso decile al cliente que hagas un pedido nuevo con crear_pedido.",
     parameters: {
       type: "object",
       properties: {
@@ -324,6 +325,31 @@ export const MODIFY_ORDER_TOOL: ChatCompletionTool = {
                 type: "array",
                 items: { type: "string" },
                 description: "Solo si nombre es una promoción con partes a elección.",
+              },
+            },
+            required: ["nombre"],
+          },
+        },
+        quitar: {
+          type: "array",
+          description:
+            "Productos sueltos (no promos) que el cliente pide sacar, reducir, o dejar en una cantidad puntual. Usá SOLO uno de los dos campos de cantidad por renglón, el que corresponda a cómo lo dijo el cliente — no calcules vos la resta. Omitir todo el campo si no pidió sacar nada.",
+          items: {
+            type: "object",
+            properties: {
+              nombre: {
+                type: "string",
+                description: "Nombre exacto del producto suelto a sacar/reducir.",
+              },
+              cantidadASacar: {
+                type: "number",
+                description:
+                  "Usar cuando el cliente dice cuánto sacar directamente (ej. \"sacame 2 empanadas de jamón y queso\" → 2). NO usar junto con cantidadFinal.",
+              },
+              cantidadFinal: {
+                type: "number",
+                description:
+                  "Usar cuando el cliente dice cuánto quiere que QUEDE en total (ej. \"tenía 9, dejame solo 3\", \"que queden 3\") — poné el número final (3), el sistema calcula solo cuánto restar. NO restes vos ni uses cantidadASacar en este caso.",
               },
             },
             required: ["nombre"],
@@ -364,6 +390,7 @@ export const MODIFY_ORDER_TOOL: ChatCompletionTool = {
 
 interface ModifyOrderArgs {
   items?: ItemArg[];
+  quitar?: { nombre: string; cantidadASacar?: number; cantidadFinal?: number }[];
   canal?: "MOSTRADOR" | "DELIVERY";
   direccion?: string;
   metodoPago?: "EFECTIVO" | "TRANSFERENCIA";
@@ -385,15 +412,41 @@ export async function handleModifyOrder(customerId: string, args: ModifyOrderArg
     if ("error" in resolved) return resolved.error;
 
     // El modelo a veces reenvía en `items` cosas que ya se habían agregado
-    // antes en la misma conversación (en vez de solo lo nuevo), lo que
-    // sumaría el mismo producto dos veces y cobraría de más. Si un
-    // producto/promo con la misma cantidad ya está en el pedido, no se
+    // antes en la misma conversación (en vez de solo lo nuevo) — a veces
+    // porque el cliente solo hizo una pregunta y el modelo igual llamó a
+    // esta herramienta — lo que sumaría el mismo producto dos veces y
+    // cobraría de más. Si un producto/promo con la misma cantidad ya está
+    // en el pedido (suelto O ya consolidado adentro de una promo), no se
     // vuelve a agregar.
     const existingItems = await prisma.orderItem.findMany({ where: { orderId: order.id } });
-    const isAlreadyOnOrder = (item: OrderInput["items"][number]) =>
-      item.kind === "PRODUCTO"
-        ? existingItems.some((existing) => existing.productId === item.productId && existing.quantity === item.quantity)
-        : existingItems.some((existing) => existing.promotionId === item.promotionId);
+    const countProductInPromoSelections = (selections: unknown, productId: string): number => {
+      if (!Array.isArray(selections)) return 0;
+      let count = 0;
+      for (const selection of selections as Array<Record<string, unknown>>) {
+        if (selection?.type === "FIJO" && selection.productId === productId) {
+          count += typeof selection.cantidad === "number" ? selection.cantidad : 1;
+        }
+        if (selection?.type === "VARIABLE" && Array.isArray(selection.productos)) {
+          count += (selection.productos as Array<{ productId?: string }>).filter(
+            (p) => p?.productId === productId,
+          ).length;
+        }
+      }
+      return count;
+    };
+    const isAlreadyOnOrder = (item: OrderInput["items"][number]) => {
+      if (item.kind !== "PRODUCTO") {
+        return existingItems.some((existing) => existing.promotionId === item.promotionId);
+      }
+      const looseMatch = existingItems.some(
+        (existing) => existing.productId === item.productId && existing.quantity === item.quantity,
+      );
+      if (looseMatch) return true;
+      const insidePromos = existingItems
+        .filter((existing) => existing.promotionId)
+        .reduce((sum, existing) => sum + countProductInPromoSelections(existing.selections, item.productId), 0);
+      return insidePromos >= item.quantity;
+    };
 
     const newItems = resolved.orderItems.filter((item) => !isAlreadyOnOrder(item));
 
@@ -402,11 +455,50 @@ export async function handleModifyOrder(customerId: string, args: ModifyOrderArg
       if (!updated) {
         return "Este pedido ya no se puede modificar (ya está en preparación o ya salió) — si el cliente quiere algo más, hay que hacer un pedido nuevo.";
       }
-      // Si lo que se acaba de agregar completa una promo (ej. ya tenía una
-      // pizza suelta y ahora se suman las empanadas que arman el combo), se
-      // consolida automáticamente para que salga al precio de la promo.
-      await reconcilePromotions(order.id);
     }
+  }
+
+  if (args.quitar && args.quitar.length > 0) {
+    const products = await prisma.product.findMany();
+    // Cantidad actual por producto en el pedido (post cualquier agregado de
+    // arriba), para poder calcular la resta cuando el cliente da la
+    // cantidad final en vez de cuánto sacar.
+    const currentItems = await prisma.orderItem.findMany({ where: { orderId: order.id } });
+    const currentQtyByProduct = new Map<string, number>();
+    for (const item of currentItems) {
+      if (!item.productId) continue;
+      currentQtyByProduct.set(item.productId, (currentQtyByProduct.get(item.productId) ?? 0) + item.quantity);
+    }
+
+    const removals = args.quitar
+      .map((item) => {
+        const product = findBestMatch(products, (p) => p.name, item.nombre);
+        if (!product) return null;
+
+        let quantity: number;
+        if (item.cantidadFinal !== undefined) {
+          const current = currentQtyByProduct.get(product.id) ?? 0;
+          quantity = current - item.cantidadFinal;
+        } else {
+          quantity = item.cantidadASacar ?? 0;
+        }
+        return quantity > 0 ? { productId: product.id, quantity } : null;
+      })
+      .filter((r): r is { productId: string; quantity: number } => r !== null);
+
+    if (removals.length > 0) {
+      const updated = await removeItemsFromOrder(order.id, removals);
+      if (!updated) {
+        return "Este pedido ya no se puede modificar (ya está en preparación o ya salió).";
+      }
+    }
+  }
+
+  if ((args.items && args.items.length > 0) || (args.quitar && args.quitar.length > 0)) {
+    // Si agregar o sacar algo deja una combinación que arma una promo (ej.
+    // quedan 3 empanadas sueltas + 1 pizza recién agregada), se consolida
+    // sola para que salga al precio de la promo.
+    await reconcilePromotions(order.id);
   }
 
   if (args.canal && args.canal !== order.channel) {

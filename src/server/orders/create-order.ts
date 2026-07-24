@@ -127,7 +127,13 @@ async function resolveOrderItem(
 // bloquear la venta: es más importante poder tomar el pedido que tener el
 // conteo de stock perfecto, el negativo queda como aviso visual para
 // reponer/corregir.
-async function applySupplyDeductions(tx: Prisma.TransactionClient, deductions: SupplyDeduction[]) {
+// mode SALIDA: se vendió (resta). mode ENTRADA: se sacó del pedido después
+// de haber sido descontado (devuelve al stock).
+async function applySupplyDeductions(
+  tx: Prisma.TransactionClient,
+  deductions: SupplyDeduction[],
+  mode: "SALIDA" | "ENTRADA" = "SALIDA",
+) {
   if (deductions.length === 0) return;
 
   const totalsByProduct = new Map<string, number>();
@@ -147,9 +153,12 @@ async function applySupplyDeductions(tx: Prisma.TransactionClient, deductions: S
 
   for (const [supplyId, quantity] of totalsBySupply) {
     if (quantity <= 0) continue;
-    await tx.supply.update({ where: { id: supplyId }, data: { quantity: { decrement: quantity } } });
+    await tx.supply.update({
+      where: { id: supplyId },
+      data: { quantity: mode === "SALIDA" ? { decrement: quantity } : { increment: quantity } },
+    });
     await tx.supplyMovement.create({
-      data: { supplyId, type: "SALIDA", quantity, reason: "Venta" },
+      data: { supplyId, type: mode, quantity, reason: mode === "SALIDA" ? "Venta" : "Corrección de pedido" },
     });
   }
 }
@@ -233,6 +242,57 @@ export async function addItemsToOrder(orderId: string, items: OrderInput["items"
     });
 
     await applySupplyDeductions(tx, deductions);
+
+    return updated;
+  });
+}
+
+// Saca (o reduce la cantidad de) productos sueltos de un pedido PENDIENTE o
+// CONFIRMADO — ej. el cliente pidió 9 empanadas y después dijo que en
+// realidad quiere solo 3. Solo opera sobre renglones PRODUCTO (no
+// desarma una promo ya formada). Devuelve el pedido actualizado, o null si
+// ya no se puede tocar; si algún producto pedido no está en el pedido con
+// esa cantidad, lo ignora (no rompe el resto de la operación).
+export async function removeItemsFromOrder(
+  orderId: string,
+  removals: { productId: string; quantity: number }[],
+) {
+  return prisma.$transaction(async (tx) => {
+    const order = await tx.order.findUnique({ where: { id: orderId } });
+    if (!order || !isModifiable(order.status)) return null;
+
+    const looseItems = await tx.orderItem.findMany({
+      where: { orderId, productId: { not: null } },
+      include: { product: true },
+    });
+
+    let removedTotal = 0;
+    const restored: SupplyDeduction[] = [];
+
+    for (const removal of removals) {
+      let remaining = removal.quantity;
+      const rows = looseItems.filter((item) => item.productId === removal.productId);
+      for (const row of rows) {
+        if (remaining <= 0) break;
+        const take = Math.min(row.quantity, remaining);
+        removedTotal += Number(row.unitPrice) * take;
+        restored.push({ productId: removal.productId, quantity: take });
+
+        if (take === row.quantity) {
+          await tx.orderItem.delete({ where: { id: row.id } });
+        } else {
+          await tx.orderItem.update({ where: { id: row.id }, data: { quantity: row.quantity - take } });
+        }
+        remaining -= take;
+      }
+    }
+
+    const updated = await tx.order.update({
+      where: { id: orderId },
+      data: { total: Number(order.total) - removedTotal },
+    });
+
+    await applySupplyDeductions(tx, restored, "ENTRADA");
 
     return updated;
   });
