@@ -12,6 +12,7 @@ import {
 import { trpc } from "@/lib/trpc/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Field, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 
 type ProductFormProps =
@@ -40,6 +41,7 @@ export function ProductForm(props: ProductFormProps) {
             supplier: "",
             cost: 0,
             price: 0,
+            ingredients: "",
           },
   });
 
@@ -119,6 +121,16 @@ export function ProductForm(props: ProductFormProps) {
         <Field>
           <FieldLabel htmlFor="internalCode">Código interno (opcional)</FieldLabel>
           <Input id="internalCode" {...form.register("internalCode")} />
+        </Field>
+
+        <Field>
+          <FieldLabel htmlFor="ingredients">Ingredientes (opcional)</FieldLabel>
+          <Textarea
+            id="ingredients"
+            placeholder="Ej: muzzarella, jamón, morrón"
+            rows={2}
+            {...form.register("ingredients")}
+          />
         </Field>
       </FieldGroup>
 

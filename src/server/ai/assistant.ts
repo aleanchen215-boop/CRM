@@ -42,6 +42,8 @@ Qué vendemos (esto es fijo, no lo cuestiones ni inventes variantes):
 - Solo pizzas y empanadas, más las promos que las combinan. No hay ningún otro producto — si piden otra cosa (bebidas, postres, etc.) decí que no tenemos eso.
 - Las pizzas son de un SOLO tamaño (no hay chica/mediana/grande ni 30/35/40cm) y no tienen variantes de cocción ni agregados ("extra queso", "más dorada", etc.) — NUNCA preguntes por tamaño ni por ese tipo de opciones, no existen aunque sean comunes en otras pizzerías. Las pizzas solo varían por sabor (muzzarella, jamón, jamón y morrón, etc., según lo que haya cargado en el catálogo). Para una pizza preguntás únicamente sabor y cantidad — nada más. Si el cliente pregunta por tamaño o pide un agregado que no existe, decile claramente que la pizza es de un solo tamaño/sin esa opción y seguí con el sabor.
 - Las empanadas también son de un solo tamaño y solo varían por sabor. Para empanadas preguntás únicamente sabor y cantidad.
+- Si el cliente pide un sabor de forma ambigua (ej. "empanadas de carne", "de Roquefort") y buscar_productos te devuelve MÁS DE UN sabor que matchea, NUNCA elijas uno por tu cuenta — listale todas las opciones que encontraste y preguntale cuál quiere. Por ejemplo "de carne" puede ser Carne Cortada a Cuchillo, Carne Dulce, o Carne Con Aceitunas; "de Roquefort" puede ser Jamón y Roquefort o Roquefort Apio y Nuez — en esos casos aclarále la diferencia y que elija.
+- Si el cliente pregunta qué lleva o qué ingredientes tiene una pizza/empanada, usá buscar_productos y respondé con el campo "ingredientes" tal cual — nunca inventes ingredientes. Si ese producto no tiene ingredientes cargados todavía, decilo con naturalidad ("no tengo esa info cargada, preguntale al local") en vez de inventar una lista.
 
 Cómo manejar el catálogo:
 - Hay dos categorías: Pizzas y Empanadas. Cada producto pertenece a una sola — fijate en el campo "categoria" que te devuelve buscar_productos antes de decir si algo es pizza o empanada, no lo asumas por el nombre.
@@ -85,7 +87,7 @@ const SEARCH_PRODUCTS_TOOL: ChatCompletionTool = {
   function: {
     name: "buscar_productos",
     description:
-      "Busca productos del catálogo (pizzas o empanadas) por nombre para conocer su precio y categoría exactos. Usar siempre antes de mencionar un precio o confirmar disponibilidad.",
+      "Busca productos del catálogo (pizzas o empanadas) por nombre para conocer su precio, categoría e ingredientes exactos. Usar siempre antes de mencionar un precio o confirmar disponibilidad, y también cuando el cliente pregunte qué lleva o qué ingredientes tiene un producto.",
     parameters: {
       type: "object",
       properties: {
@@ -154,7 +156,7 @@ function sanitizeForWhatsapp(text: string): string {
 
 async function searchProducts(
   query: string,
-): Promise<{ nombre: string; categoria: string; precio_ars: string }[]> {
+): Promise<{ nombre: string; categoria: string; precio_ars: string; ingredientes?: string }[]> {
   // Escala chica (decenas de productos): traer todo y filtrar en memoria es
   // más simple y más tolerante que armar el WHERE ideal en SQL.
   const products = await prisma.product.findMany({ take: 200, include: { category: true } });
@@ -171,6 +173,7 @@ async function searchProducts(
     nombre: product.name,
     categoria: product.category?.name ?? "Sin categoría",
     precio_ars: formatArs(Number(product.price)),
+    ...(product.ingredients ? { ingredientes: product.ingredients } : {}),
   }));
 }
 

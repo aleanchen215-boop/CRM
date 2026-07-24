@@ -221,6 +221,9 @@ model Product {
   supplier     Supplier?        @relation(fields: [supplierId], references: [id])
   cost         Decimal          @db.Decimal(12, 2)
   price        Decimal          @db.Decimal(12, 2)
+  // Lista de ingredientes en texto libre (ej. "muzzarella, jamón, morrón") —
+  // para que el catálogo pueda responder qué lleva cada pizza/producto.
+  ingredients  String?
   createdAt    DateTime         @default(now())
   updatedAt    DateTime         @updatedAt
 
@@ -228,8 +231,27 @@ model Product {
   images         ProductImage[]
   orderItems     OrderItem[]
   promotionItems PromotionItem[]
+  supplyUsages   ProductSupplyUsage[]
 
   @@map("products")
+}
+
+// Receta: qué insumos (y cuánto de cada uno) se descuentan de Stock cada vez
+// que se vende una unidad de este producto. Ej. una pizza Muzzarella
+// descuenta 1 Prepizza + 1 Muzzarella; una empanada de un sabor descuenta 1
+// unidad del insumo del mismo sabor. Un producto puede no tener receta
+// cargada — en ese caso no se descuenta nada al vender.
+model ProductSupplyUsage {
+  id        String  @id @default(uuid())
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  supplyId  String
+  supply    Supply  @relation(fields: [supplyId], references: [id], onDelete: Cascade)
+  // Cuánto se descuenta de este insumo por cada unidad vendida del producto.
+  quantity  Int     @default(1)
+
+  @@unique([productId, supplyId])
+  @@map("product_supply_usage")
 }
 
 // Combo de venta: junta renglones fijos (un producto puntual) y/o variables
@@ -302,9 +324,23 @@ model Supply {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  movements SupplyMovement[]
+  movements     SupplyMovement[]
+  productUsages ProductSupplyUsage[]
 
   @@map("supplies")
+}
+
+// Lista rápida de "esto se está por terminar/falta comprar" que carga
+// cualquiera desde la pantalla de Stock — no es un insumo formal con
+// cantidad/unidad, solo una nota tipo lista de compras. Se resuelve cuando
+// ya se compró (no se borra, para tener registro de qué se fue pidiendo).
+model MissingSupplyItem {
+  id         String    @id @default(uuid())
+  text       String
+  createdAt  DateTime  @default(now())
+  resolvedAt DateTime?
+
+  @@map("missing_supply_items")
 }
 
 enum StockMovementType {

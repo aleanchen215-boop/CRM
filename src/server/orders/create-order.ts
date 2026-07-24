@@ -21,10 +21,17 @@ function isModifiable(status: string): boolean {
   return (MODIFIABLE_STATUSES as readonly string[]).includes(status);
 }
 
+// Un renglón de pedido (producto suelto o promo) siempre se traduce a una
+// lista de "productos reales x cantidad" a los efectos de descontar stock —
+// para un producto suelto es él mismo; para una promo, los productos FIJOS y
+// VARIABLES que la componen (una promo nunca consume su propio insumo, sino
+// el de los productos que la arman).
+type SupplyDeduction = { productId: string; quantity: number };
+
 async function resolveOrderItem(
   tx: Prisma.TransactionClient,
   item: OrderItemInput,
-): Promise<{ data: Prisma.OrderItemCreateManyOrderInput; price: number }> {
+): Promise<{ data: Prisma.OrderItemCreateManyOrderInput; price: number; deductions: SupplyDeduction[] }> {
   if (item.kind === "PRODUCTO") {
     const product = await tx.product.findUnique({ where: { id: item.productId } });
     if (!product) {
@@ -33,6 +40,7 @@ async function resolveOrderItem(
     return {
       data: { productId: product.id, quantity: item.quantity, unitPrice: product.price },
       price: Number(product.price) * item.quantity,
+      deductions: [{ productId: product.id, quantity: item.quantity }],
     };
   }
 
@@ -45,6 +53,7 @@ async function resolveOrderItem(
   }
 
   const selections: Array<Record<string, unknown>> = [];
+  const deductions: SupplyDeduction[] = [];
 
   for (const promoItem of promotion.items) {
     if (promoItem.kind === "FIJO") {
@@ -54,6 +63,9 @@ async function resolveOrderItem(
         nombre: promoItem.product?.name ?? "Producto",
         cantidad: promoItem.quantity,
       });
+      if (promoItem.productId) {
+        deductions.push({ productId: promoItem.productId, quantity: promoItem.quantity });
+      }
       continue;
     }
 
@@ -92,9 +104,13 @@ async function resolveOrderItem(
         nombre: productById.get(id)?.name ?? "",
       })),
     });
+    for (const id of selection.productIds) {
+      deductions.push({ productId: id, quantity: 1 });
+    }
   }
 
   return {
+    deductions,
     data: {
       promotionId: promotion.id,
       quantity: 1,
@@ -103,6 +119,39 @@ async function resolveOrderItem(
     },
     price: Number(promotion.price),
   };
+}
+
+// Descuenta Stock según la receta cargada en ProductSupplyUsage (si el
+// producto no tiene receta, no pasa nada — no todos los productos la
+// necesitan). Deja que la cantidad de un insumo quede en negativo en vez de
+// bloquear la venta: es más importante poder tomar el pedido que tener el
+// conteo de stock perfecto, el negativo queda como aviso visual para
+// reponer/corregir.
+async function applySupplyDeductions(tx: Prisma.TransactionClient, deductions: SupplyDeduction[]) {
+  if (deductions.length === 0) return;
+
+  const totalsByProduct = new Map<string, number>();
+  for (const deduction of deductions) {
+    totalsByProduct.set(deduction.productId, (totalsByProduct.get(deduction.productId) ?? 0) + deduction.quantity);
+  }
+
+  const usages = await tx.productSupplyUsage.findMany({
+    where: { productId: { in: [...totalsByProduct.keys()] } },
+  });
+
+  const totalsBySupply = new Map<string, number>();
+  for (const usage of usages) {
+    const productQty = totalsByProduct.get(usage.productId) ?? 0;
+    totalsBySupply.set(usage.supplyId, (totalsBySupply.get(usage.supplyId) ?? 0) + usage.quantity * productQty);
+  }
+
+  for (const [supplyId, quantity] of totalsBySupply) {
+    if (quantity <= 0) continue;
+    await tx.supply.update({ where: { id: supplyId }, data: { quantity: { decrement: quantity } } });
+    await tx.supplyMovement.create({
+      data: { supplyId, type: "SALIDA", quantity, reason: "Venta" },
+    });
+  }
 }
 
 export type CreateOrderInput = OrderInput & {
@@ -119,17 +168,19 @@ export async function createOrder(input: CreateOrderInput) {
   return prisma.$transaction(async (tx) => {
     let total = 0;
     const itemsData: Prisma.OrderItemCreateManyOrderInput[] = [];
+    const deductions: SupplyDeduction[] = [];
 
     for (const item of input.items) {
       const resolved = await resolveOrderItem(tx, item);
       total += resolved.price;
       itemsData.push(resolved.data);
+      deductions.push(...resolved.deductions);
     }
 
     const deliveryFee = input.channel === "DELIVERY" ? (input.deliveryFee ?? DELIVERY_FEE) : undefined;
     total += deliveryFee ?? 0;
 
-    return tx.order.create({
+    const order = await tx.order.create({
       data: {
         customerId: input.customerId,
         method: input.method,
@@ -146,6 +197,10 @@ export async function createOrder(input: CreateOrderInput) {
         invoice: { create: { type: "INTERNO", status: "EMITIDO" } },
       },
     });
+
+    await applySupplyDeductions(tx, deductions);
+
+    return order;
   });
 }
 
@@ -160,20 +215,26 @@ export async function addItemsToOrder(orderId: string, items: OrderInput["items"
 
     let addedTotal = 0;
     const itemsData: Prisma.OrderItemCreateManyOrderInput[] = [];
+    const deductions: SupplyDeduction[] = [];
     for (const item of items) {
       const resolved = await resolveOrderItem(tx, item);
       addedTotal += resolved.price;
       itemsData.push(resolved.data);
+      deductions.push(...resolved.deductions);
     }
 
     await tx.orderItem.createMany({
       data: itemsData.map((data) => ({ ...data, orderId })),
     });
 
-    return tx.order.update({
+    const updated = await tx.order.update({
       where: { id: orderId },
       data: { total: Number(order.total) + addedTotal },
     });
+
+    await applySupplyDeductions(tx, deductions);
+
+    return updated;
   });
 }
 

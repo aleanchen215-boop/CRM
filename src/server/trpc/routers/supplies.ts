@@ -8,6 +8,10 @@ import {
 import { requirePermission, router } from "@/server/trpc/trpc";
 
 export const suppliesRouter = router({
+  // Incluye a qué categoría de producto pertenece cada insumo (vía la
+  // receta en ProductSupplyUsage) para que la pantalla de Stock pueda
+  // agrupar empanadas primero y el resto (prepizzas, insumos sueltos)
+  // después.
   list: requirePermission("stock:read")
     .input(z.object({ search: z.string().trim().optional() }))
     .query(async ({ ctx, input }) => {
@@ -16,6 +20,7 @@ export const suppliesRouter = router({
           ? { name: { contains: input.search, mode: "insensitive" } }
           : {},
         orderBy: { name: "asc" },
+        include: { productUsages: { include: { product: { include: { category: true } } } } },
       });
     }),
 
@@ -106,6 +111,31 @@ export const suppliesRouter = router({
             reason: input.reason,
           },
         });
+      });
+    }),
+
+  // Lista de compras rápida ("insumos faltantes"): cualquiera con acceso a
+  // Stock puede anotar algo que se está por terminar, y tacharlo cuando ya
+  // se compró. No pisa el modelo de Supply — es solo una nota.
+  missingList: requirePermission("stock:read").query(async ({ ctx }) => {
+    return ctx.prisma.missingSupplyItem.findMany({
+      where: { resolvedAt: null },
+      orderBy: { createdAt: "asc" },
+    });
+  }),
+
+  missingCreate: requirePermission("stock:write")
+    .input(z.object({ text: z.string().trim().min(1).max(200) }))
+    .mutation(async ({ ctx, input }) => {
+      return ctx.prisma.missingSupplyItem.create({ data: { text: input.text } });
+    }),
+
+  missingResolve: requirePermission("stock:write")
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      return ctx.prisma.missingSupplyItem.update({
+        where: { id: input.id },
+        data: { resolvedAt: new Date() },
       });
     }),
 });

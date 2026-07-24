@@ -92,6 +92,7 @@ export const productsRouter = router({
             supplierId,
             cost: input.cost,
             price: input.price,
+            ingredients: input.ingredients || undefined,
           },
         });
       });

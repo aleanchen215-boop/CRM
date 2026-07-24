@@ -16,10 +16,23 @@ import {
 } from "@/components/ui/table";
 import { SupplyLevelBadge } from "@/components/supplies/supply-level-badge";
 import { NewSupplyDialog } from "@/components/supplies/new-supply-dialog";
+import { MissingSupplies } from "@/components/supplies/missing-supplies";
+
+// Empanadas primero (son el grueso del catálogo y las que más rotan), el
+// resto (prepizzas, insumos sueltos como bolsas de muzzarella, etc.)
+// después de un separador — se agrupa según si el insumo está vinculado a
+// algún producto de la categoría "Empanadas" (ver ProductSupplyUsage), no
+// por nombre.
+function isEmpanadaSupply(supply: { productUsages: { product: { category: { name: string } | null } | null }[] }) {
+  return supply.productUsages.some((usage) => usage.product?.category?.name === "Empanadas");
+}
 
 export default function StockPage() {
   const [search, setSearch] = useState("");
   const { data: supplies, isLoading } = trpc.supplies.list.useQuery({ search });
+
+  const empanadaSupplies = supplies?.filter(isEmpanadaSupply) ?? [];
+  const otherSupplies = supplies?.filter((supply) => !isEmpanadaSupply(supply)) ?? [];
 
   return (
     <div className="flex flex-col gap-6">
@@ -32,6 +45,8 @@ export default function StockPage() {
         </div>
         <NewSupplyDialog />
       </div>
+
+      <MissingSupplies />
 
       <div className="relative max-w-sm">
         <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -70,7 +85,29 @@ export default function StockPage() {
                   </TableCell>
                 </TableRow>
               )}
-              {supplies?.map((supply) => (
+              {empanadaSupplies.map((supply) => (
+                <TableRow key={supply.id}>
+                  <TableCell>
+                    <Link href={`/stock/${supply.id}`} className="font-medium hover:underline">
+                      {supply.name}
+                    </Link>
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">{supply.quantity}</TableCell>
+                  <TableCell className="text-muted-foreground">{supply.unit ?? "—"}</TableCell>
+                  <TableCell className="text-muted-foreground">{supply.stockMinimo}</TableCell>
+                  <TableCell>
+                    <SupplyLevelBadge quantity={supply.quantity} stockMinimo={supply.stockMinimo} />
+                  </TableCell>
+                </TableRow>
+              ))}
+              {empanadaSupplies.length > 0 && otherSupplies.length > 0 && (
+                <TableRow className="hover:bg-transparent">
+                  <TableCell colSpan={5} className="bg-muted/40 py-1.5 text-xs font-medium text-muted-foreground">
+                    Otros insumos
+                  </TableCell>
+                </TableRow>
+              )}
+              {otherSupplies.map((supply) => (
                 <TableRow key={supply.id}>
                   <TableCell>
                     <Link href={`/stock/${supply.id}`} className="font-medium hover:underline">

@@ -8,6 +8,7 @@ export const productInputSchema = z.object({
   supplier: z.string().trim().optional(),
   cost: z.coerce.number().min(0, "No puede ser negativo"),
   price: z.coerce.number().min(0, "No puede ser negativo"),
+  ingredients: z.string().trim().max(500).optional(),
 });
 
 export const productUpdateSchema = productInputSchema.partial();
