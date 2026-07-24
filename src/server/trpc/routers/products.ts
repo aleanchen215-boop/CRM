@@ -1,11 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import type { Prisma } from "@/generated/prisma/client";
-import {
-  productInputSchema,
-  productUpdateSchema,
-  stockMovementInputSchema,
-} from "@/lib/validation/product";
+import { productInputSchema, productUpdateSchema } from "@/lib/validation/product";
 import { requirePermission, router } from "@/server/trpc/trpc";
 
 function toNumber(product: { cost: unknown; price: unknown }) {
@@ -33,7 +29,7 @@ async function resolveSupplierId(tx: Prisma.TransactionClient, name?: string) {
 }
 
 export const productsRouter = router({
-  list: requirePermission("stock:read")
+  list: requirePermission("products:read")
     .input(z.object({ search: z.string().trim().optional() }))
     .query(async ({ ctx, input }) => {
       const where: Prisma.ProductWhereInput = input.search
@@ -54,16 +50,12 @@ export const productsRouter = router({
       return products.map((product) => ({ ...product, ...toNumber(product) }));
     }),
 
-  getById: requirePermission("stock:read")
+  getById: requirePermission("products:read")
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
       const product = await ctx.prisma.product.findUnique({
         where: { id: input.id },
-        include: {
-          category: true,
-          supplier: true,
-          movements: { orderBy: { createdAt: "desc" }, take: 20 },
-        },
+        include: { category: true, supplier: true },
       });
 
       if (!product) throw new TRPCError({ code: "NOT_FOUND" });
@@ -71,7 +63,7 @@ export const productsRouter = router({
       return { ...product, ...toNumber(product) };
     }),
 
-  create: requirePermission("stock:write")
+  create: requirePermission("products:write")
     .input(productInputSchema)
     .mutation(async ({ ctx, input }) => {
       const existing = await ctx.prisma.product.findUnique({ where: { sku: input.sku } });
@@ -85,7 +77,7 @@ export const productsRouter = router({
           resolveSupplierId(tx, input.supplier),
         ]);
 
-        const created = await tx.product.create({
+        return tx.product.create({
           data: {
             sku: input.sku,
             internalCode: input.internalCode || undefined,
@@ -94,31 +86,14 @@ export const productsRouter = router({
             supplierId,
             cost: input.cost,
             price: input.price,
-            stockMinimo: input.stockMinimo,
-            stockIdeal: input.stockIdeal,
-            location: input.location,
-            stockActual: input.initialStock,
           },
         });
-
-        if (input.initialStock > 0) {
-          await tx.stockMovement.create({
-            data: {
-              productId: created.id,
-              type: "ENTRADA",
-              quantity: input.initialStock,
-              reason: "Carga inicial",
-            },
-          });
-        }
-
-        return created;
       });
 
       return { ...product, ...toNumber(product) };
     }),
 
-  update: requirePermission("stock:write")
+  update: requirePermission("products:write")
     .input(z.object({ id: z.string() }).merge(productUpdateSchema))
     .mutation(async ({ ctx, input }) => {
       const { id, category, supplier, ...data } = input;
@@ -141,43 +116,5 @@ export const productsRouter = router({
       });
 
       return { ...product, ...toNumber(product) };
-    }),
-
-  addMovement: requirePermission("stock:write")
-    .input(stockMovementInputSchema)
-    .mutation(async ({ ctx, input }) => {
-      return ctx.prisma.$transaction(async (tx) => {
-        const product = await tx.product.findUnique({ where: { id: input.productId } });
-        if (!product) throw new TRPCError({ code: "NOT_FOUND" });
-
-        let newStock: number;
-        let movementQuantity: number;
-
-        if (input.type === "ENTRADA") {
-          movementQuantity = input.quantity;
-          newStock = product.stockActual + input.quantity;
-        } else if (input.type === "SALIDA") {
-          if (product.stockActual - input.quantity < 0) {
-            throw new TRPCError({ code: "BAD_REQUEST", message: "Stock insuficiente." });
-          }
-          movementQuantity = input.quantity;
-          newStock = product.stockActual - input.quantity;
-        } else {
-          // AJUSTE: la cantidad ingresada es el nuevo stock total.
-          newStock = input.quantity;
-          movementQuantity = input.quantity - product.stockActual;
-        }
-
-        await tx.product.update({ where: { id: input.productId }, data: { stockActual: newStock } });
-
-        return tx.stockMovement.create({
-          data: {
-            productId: input.productId,
-            type: input.type,
-            quantity: movementQuantity,
-            reason: input.reason,
-          },
-        });
-      });
     }),
 });

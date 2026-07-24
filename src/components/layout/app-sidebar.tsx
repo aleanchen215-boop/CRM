@@ -4,12 +4,13 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   BarChart3,
+  Boxes,
   LayoutDashboard,
   MessageCircle,
-  Package,
   Settings,
   ShoppingCart,
   Sparkles,
+  UtensilsCrossed,
   Users,
   Workflow,
 } from "lucide-react";
@@ -31,7 +32,8 @@ const NAV_ITEMS = [
   { href: "/clientes", label: "Clientes", icon: Users },
   { href: "/conversaciones", label: "Conversaciones", icon: MessageCircle },
   { href: "/ventas", label: "Ventas", icon: ShoppingCart },
-  { href: "/stock", label: "Stock", icon: Package },
+  { href: "/productos", label: "Productos", icon: UtensilsCrossed },
+  { href: "/stock", label: "Stock", icon: Boxes },
   { href: "/ia", label: "IA", icon: Sparkles },
   { href: "/automatizaciones", label: "Automatizaciones", icon: Workflow },
   { href: "/reportes", label: "Reportes", icon: BarChart3 },

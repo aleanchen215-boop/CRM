@@ -7,9 +7,9 @@ import { toast } from "sonner";
 import { ArrowLeftRight } from "lucide-react";
 import {
   movementTypeValues,
-  stockMovementInputSchema,
-  type StockMovementInput,
-} from "@/lib/validation/product";
+  supplyMovementInputSchema,
+  type SupplyMovementInput,
+} from "@/lib/validation/supply";
 import { trpc } from "@/lib/trpc/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,25 +32,25 @@ import {
 const TYPE_LABELS: Record<(typeof movementTypeValues)[number], string> = {
   ENTRADA: "Entrada",
   SALIDA: "Salida",
-  AJUSTE: "Ajuste (fija el stock total)",
+  AJUSTE: "Ajuste (fija la cantidad total)",
 };
 
-export function MovementDialog({ productId }: { productId: string }) {
+export function MovementDialog({ supplyId }: { supplyId: string }) {
   const [open, setOpen] = useState(false);
   const utils = trpc.useUtils();
 
-  const form = useForm<StockMovementInput>({
-    resolver: zodResolver(stockMovementInputSchema) as Resolver<StockMovementInput>,
-    defaultValues: { productId, type: "ENTRADA", quantity: 1, reason: "" },
+  const form = useForm<SupplyMovementInput>({
+    resolver: zodResolver(supplyMovementInputSchema) as Resolver<SupplyMovementInput>,
+    defaultValues: { supplyId, type: "ENTRADA", quantity: 1, reason: "" },
   });
 
-  const addMovement = trpc.products.addMovement.useMutation({
+  const addMovement = trpc.supplies.addMovement.useMutation({
     onSuccess: async () => {
-      await utils.products.getById.invalidate({ id: productId });
-      await utils.products.list.invalidate();
+      await utils.supplies.getById.invalidate({ id: supplyId });
+      await utils.supplies.list.invalidate();
       toast.success("Movimiento registrado");
       setOpen(false);
-      form.reset({ productId, type: "ENTRADA", quantity: 1, reason: "" });
+      form.reset({ supplyId, type: "ENTRADA", quantity: 1, reason: "" });
     },
     onError: (error) => toast.error(error.message),
   });
@@ -63,7 +63,7 @@ export function MovementDialog({ productId }: { productId: string }) {
       </DialogTrigger>
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
-          <DialogTitle>Registrar movimiento de stock</DialogTitle>
+          <DialogTitle>Registrar movimiento</DialogTitle>
         </DialogHeader>
         <form
           onSubmit={form.handleSubmit((values) => addMovement.mutate(values))}
@@ -78,7 +78,9 @@ export function MovementDialog({ productId }: { productId: string }) {
                 render={({ field }) => (
                   <Select value={field.value} onValueChange={field.onChange}>
                     <SelectTrigger id="type" className="w-full">
-                      <SelectValue />
+                      <SelectValue>
+                        {(value: (typeof movementTypeValues)[number]) => TYPE_LABELS[value]}
+                      </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                       {movementTypeValues.map((type) => (

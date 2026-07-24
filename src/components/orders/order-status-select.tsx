@@ -33,7 +33,6 @@ export function OrderStatusSelect({
       await Promise.all([
         utils.orders.getById.invalidate({ id: orderId }),
         utils.orders.list.invalidate(),
-        utils.products.list.invalidate(),
       ]);
       toast.success("Estado actualizado");
     },
@@ -48,7 +47,9 @@ export function OrderStatusSelect({
       }
     >
       <SelectTrigger className="w-44">
-        <SelectValue />
+        <SelectValue>
+          {(value: (typeof orderStatusValues)[number]) => STATUS_LABELS[value]}
+        </SelectValue>
       </SelectTrigger>
       <SelectContent>
         {orderStatusValues.map((value) => (

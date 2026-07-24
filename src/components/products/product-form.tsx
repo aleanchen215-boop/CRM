@@ -27,8 +27,8 @@ export function ProductForm(props: ProductFormProps) {
   const utils = trpc.useUtils();
   const schema = props.mode === "create" ? productInputSchema : productUpdateSchema;
 
-  const form = useForm<ProductUpdateInput & { initialStock?: number }>({
-    resolver: zodResolver(schema) as Resolver<ProductUpdateInput & { initialStock?: number }>,
+  const form = useForm<ProductUpdateInput>({
+    resolver: zodResolver(schema) as Resolver<ProductUpdateInput>,
     defaultValues:
       props.mode === "edit"
         ? props.defaultValues
@@ -40,10 +40,6 @@ export function ProductForm(props: ProductFormProps) {
             supplier: "",
             cost: 0,
             price: 0,
-            stockMinimo: 0,
-            stockIdeal: 0,
-            location: "",
-            initialStock: 0,
           },
   });
 
@@ -99,7 +95,7 @@ export function ProductForm(props: ProductFormProps) {
         <div className="grid grid-cols-2 gap-3">
           <Field>
             <FieldLabel htmlFor="category">Categoría</FieldLabel>
-            <Input id="category" placeholder="Ej: Indumentaria" {...form.register("category")} />
+            <Input id="category" placeholder="Ej: Pizzas" {...form.register("category")} />
           </Field>
           <Field>
             <FieldLabel htmlFor="supplier">Proveedor</FieldLabel>
@@ -120,33 +116,10 @@ export function ProductForm(props: ProductFormProps) {
           </Field>
         </div>
 
-        <div className="grid grid-cols-3 gap-3">
-          {props.mode === "create" && (
-            <Field>
-              <FieldLabel htmlFor="initialStock">Stock inicial</FieldLabel>
-              <Input id="initialStock" type="number" {...form.register("initialStock")} />
-            </Field>
-          )}
-          <Field>
-            <FieldLabel htmlFor="stockMinimo">Stock mínimo</FieldLabel>
-            <Input id="stockMinimo" type="number" {...form.register("stockMinimo")} />
-          </Field>
-          <Field>
-            <FieldLabel htmlFor="stockIdeal">Stock ideal</FieldLabel>
-            <Input id="stockIdeal" type="number" {...form.register("stockIdeal")} />
-          </Field>
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <Field>
-            <FieldLabel htmlFor="internalCode">Código interno</FieldLabel>
-            <Input id="internalCode" {...form.register("internalCode")} />
-          </Field>
-          <Field>
-            <FieldLabel htmlFor="location">Ubicación</FieldLabel>
-            <Input id="location" placeholder="Depósito, estante…" {...form.register("location")} />
-          </Field>
-        </div>
+        <Field>
+          <FieldLabel htmlFor="internalCode">Código interno (opcional)</FieldLabel>
+          <Input id="internalCode" {...form.register("internalCode")} />
+        </Field>
       </FieldGroup>
 
       <Button type="submit" disabled={pending} className="self-end">

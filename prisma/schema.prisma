@@ -185,7 +185,7 @@ model Message {
   @@map("messages")
 }
 
-// ---------- Catálogo y stock ----------
+// ---------- Catálogo (Productos: lo que se vende, sin cantidad) ----------
 
 model Supplier {
   id        String   @id @default(uuid())
@@ -206,28 +206,25 @@ model ProductCategory {
   @@map("product_categories")
 }
 
+// Catálogo de venta (menú). No lleva cantidad: hay productos (ej. pizzas
+// especiales) que se preparan al momento y no se cuentan como stock.
+// El inventario de insumos vive aparte, en Supply.
 model Product {
-  id             String           @id @default(uuid())
-  sku            String           @unique
-  internalCode   String?          @unique
-  name           String
-  categoryId     String?
-  category       ProductCategory? @relation(fields: [categoryId], references: [id])
-  supplierId     String?
-  supplier       Supplier?        @relation(fields: [supplierId], references: [id])
-  cost           Decimal          @db.Decimal(12, 2)
-  price          Decimal          @db.Decimal(12, 2)
-  stockActual    Int              @default(0)
-  stockReservado Int              @default(0)
-  stockMinimo    Int              @default(0)
-  stockIdeal     Int              @default(0)
-  location       String?
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @updatedAt
+  id           String           @id @default(uuid())
+  sku          String           @unique
+  internalCode String?          @unique
+  name         String
+  categoryId   String?
+  category     ProductCategory? @relation(fields: [categoryId], references: [id])
+  supplierId   String?
+  supplier     Supplier?        @relation(fields: [supplierId], references: [id])
+  cost         Decimal          @db.Decimal(12, 2)
+  price        Decimal          @db.Decimal(12, 2)
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
 
   variants   ProductVariant[]
   images     ProductImage[]
-  movements  StockMovement[]
   orderItems OrderItem[]
 
   @@map("products")
@@ -240,7 +237,6 @@ model ProductVariant {
   attribute String
   value     String
   sku       String  @unique
-  stock     Int     @default(0)
 
   @@map("product_variants")
 }
@@ -254,24 +250,39 @@ model ProductImage {
   @@map("product_images")
 }
 
+// ---------- Stock (insumos/ingredientes, tracked solo por cantidad) ----------
+
+model Supply {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  unit        String?
+  quantity    Int      @default(0)
+  stockMinimo Int      @default(0)
+  stockIdeal  Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  movements SupplyMovement[]
+
+  @@map("supplies")
+}
+
 enum StockMovementType {
   ENTRADA
   SALIDA
   AJUSTE
 }
 
-model StockMovement {
+model SupplyMovement {
   id        String            @id @default(uuid())
-  productId String
-  product   Product           @relation(fields: [productId], references: [id])
+  supplyId  String
+  supply    Supply            @relation(fields: [supplyId], references: [id])
   type      StockMovementType
   quantity  Int
   reason    String?
-  orderId   String?
-  order     Order?            @relation(fields: [orderId], references: [id])
   createdAt DateTime          @default(now())
 
-  @@map("stock_movements")
+  @@map("supply_movements")
 }
 
 // ---------- Ventas y facturación ----------
@@ -298,29 +309,28 @@ enum SalesChannel {
 }
 
 model Order {
-  id         String        @id @default(uuid())
-  customerId String
-  customer   Customer      @relation(fields: [customerId], references: [id])
-  status     OrderStatus   @default(PENDIENTE)
-  method     PaymentMethod
-  channel    SalesChannel  @default(MOSTRADOR)
+  id              String        @id @default(uuid())
+  customerId      String
+  customer        Customer      @relation(fields: [customerId], references: [id])
+  status          OrderStatus   @default(PENDIENTE)
+  method          PaymentMethod
+  channel         SalesChannel  @default(MOSTRADOR)
   // Solo se usa cuando channel = APPS: distingue de qué plataforma vino
   // (ej. "PEDIDOSYA", "RAPPI") una vez que esas integraciones existan.
   channelSource   String?
   // Id del pedido en la plataforma externa, para evitar duplicados cuando
   // se ingieran pedidos automáticamente vía webhook.
   externalOrderId String?
-  employeeId String?
-  employee   User?         @relation(fields: [employeeId], references: [id])
-  total      Decimal       @db.Decimal(12, 2)
-  createdAt  DateTime      @default(now())
-  updatedAt  DateTime      @updatedAt
+  employeeId      String?
+  employee        User?         @relation(fields: [employeeId], references: [id])
+  total           Decimal       @db.Decimal(12, 2)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
 
-  items          OrderItem[]
-  invoice        Invoice?
-  payments       Payment[]
-  shipment       Shipment?
-  stockMovements StockMovement[]
+  items    OrderItem[]
+  invoice  Invoice?
+  payments Payment[]
+  shipment Shipment?
 
   @@unique([channelSource, externalOrderId])
   @@map("orders")

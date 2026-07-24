@@ -11,10 +11,13 @@ export const PERMISSIONS = {
   "ai:approve": ["ADMIN", "ATENCION", "SUPERVISOR"],
   "orders:write": ["ADMIN", "VENDEDOR"],
   "orders:read": ["ADMIN", "VENDEDOR", "SUPERVISOR"],
+  // Productos = catálogo de venta (nombre/precio). Todos los que venden
+  // necesitan verlo; solo Admin lo edita (cambios de precio son sensibles).
+  "products:read": ["ADMIN", "VENDEDOR", "DEPOSITO", "SUPERVISOR"],
+  "products:write": ["ADMIN"],
+  // Stock = insumos/ingredientes (cantidad). No hace falta que Vendedor lo vea.
   "stock:write": ["ADMIN", "DEPOSITO"],
-  // VENDEDOR necesita ver catálogo/precio/disponibilidad para cargar una venta,
-  // aunque no pueda editar stock — ajuste sobre la matriz original del plan.
-  "stock:read": ["ADMIN", "DEPOSITO", "SUPERVISOR", "VENDEDOR"],
+  "stock:read": ["ADMIN", "DEPOSITO", "SUPERVISOR"],
   "automations:write": ["ADMIN"],
   "reports:read": ["ADMIN", "VENDEDOR", "DEPOSITO", "SUPERVISOR"],
   "users:manage": ["ADMIN"],

@@ -1,16 +1,16 @@
 import { Badge } from "@/components/ui/badge";
 
-export function StockLevelBadge({
-  stockActual,
+export function SupplyLevelBadge({
+  quantity,
   stockMinimo,
 }: {
-  stockActual: number;
+  quantity: number;
   stockMinimo: number;
 }) {
-  if (stockActual === 0) {
+  if (quantity === 0) {
     return <Badge variant="destructive">Sin stock</Badge>;
   }
-  if (stockActual <= stockMinimo) {
+  if (quantity <= stockMinimo) {
     return (
       <Badge variant="secondary" className="text-amber-600 dark:text-amber-500">
         Stock bajo

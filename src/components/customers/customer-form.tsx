@@ -161,7 +161,9 @@ export function CustomerForm(props: CustomerFormProps) {
                 render={({ field }) => (
                   <Select value={field.value} onValueChange={field.onChange}>
                     <SelectTrigger id="status" className="w-full">
-                      <SelectValue placeholder="Estado" />
+                      <SelectValue placeholder="Estado">
+                        {(value: (typeof customerStatusValues)[number]) => STATUS_LABELS[value]}
+                      </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                       {customerStatusValues.map((status) => (
