@@ -4,6 +4,7 @@ import {
   DELIVERY_FEE,
   addItemsToOrder,
   createOrder,
+  reconcilePromotions,
   updatePendingOrderChannel,
   updatePendingOrderPayment,
 } from "@/server/orders/create-order";
@@ -229,17 +230,17 @@ export async function handleCreateOrder(
   customerId: string,
   args: CreateOrderArgs,
 ): Promise<string> {
-  // Evita duplicar pedidos: si ya hay uno PENDIENTE de este cliente (ej. el
-  // cliente pide agregar algo después de confirmar), no se crea uno nuevo —
-  // hay que sumarlo al que ya existe con modificar_pedido en su lugar. Sin
-  // esta guarda el modelo a veces llamaba crear_pedido de nuevo en vez de
-  // modificar_pedido, dejando dos pedidos pendientes sueltos para el mismo
-  // cliente.
+  // Evita duplicar pedidos: si ya hay uno PENDIENTE o CONFIRMADO de este
+  // cliente (ej. el cliente pide agregar algo después de confirmar), no se
+  // crea uno nuevo — hay que sumarlo al que ya existe con modificar_pedido
+  // en su lugar. Sin esta guarda el modelo a veces llamaba crear_pedido de
+  // nuevo en vez de modificar_pedido, dejando dos pedidos sueltos para el
+  // mismo cliente.
   const existingPending = await prisma.order.findFirst({
-    where: { customerId, status: "PENDIENTE" },
+    where: { customerId, status: { in: ["PENDIENTE", "CONFIRMADO"] } },
   });
   if (existingPending) {
-    return "Este cliente YA tiene un pedido pendiente (todavía no se despachó) — no crees uno nuevo. Para agregarle productos o cambiar el pago de ESE pedido, llamá a modificar_pedido en su lugar.";
+    return "Este cliente YA tiene un pedido en curso (todavía no salió a entregar) — no crees uno nuevo. Para agregarle productos o cambiar el pago de ESE pedido, llamá a modificar_pedido en su lugar.";
   }
 
   if (args.canal === "DELIVERY" && !args.direccion?.trim()) {
@@ -357,11 +358,11 @@ interface ModifyOrderArgs {
 
 export async function handleModifyOrder(customerId: string, args: ModifyOrderArgs): Promise<string> {
   const order = await prisma.order.findFirst({
-    where: { customerId, status: "PENDIENTE" },
+    where: { customerId, status: { in: ["PENDIENTE", "CONFIRMADO"] } },
     orderBy: { createdAt: "desc" },
   });
   if (!order) {
-    return "Este cliente no tiene ningún pedido pendiente para modificar — si quiere pedir algo, hay que hacer un pedido nuevo con crear_pedido, no esta herramienta.";
+    return "Este cliente no tiene ningún pedido en curso para modificar — si quiere pedir algo, hay que hacer un pedido nuevo con crear_pedido, no esta herramienta.";
   }
 
   if (args.items && args.items.length > 0) {
@@ -386,6 +387,10 @@ export async function handleModifyOrder(customerId: string, args: ModifyOrderArg
       if (!updated) {
         return "Este pedido ya no se puede modificar (ya está en preparación o ya salió) — si el cliente quiere algo más, hay que hacer un pedido nuevo.";
       }
+      // Si lo que se acaba de agregar completa una promo (ej. ya tenía una
+      // pizza suelta y ahora se suman las empanadas que arman el combo), se
+      // consolida automáticamente para que salga al precio de la promo.
+      await reconcilePromotions(order.id);
     }
   }
 

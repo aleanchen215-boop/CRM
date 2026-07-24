@@ -10,6 +10,17 @@ type OrderItemInput = OrderInput["items"][number];
 // cambio de canal de un pedido existente lo necesitan.
 export const DELIVERY_FEE = 3500;
 
+// Un pedido se puede seguir tocando (agregar cosas, cambiar pago/canal)
+// mientras siga PENDIENTE o ya CONFIRMADO — recién deja de poder tocarse
+// cuando pasa a ENVIADO (salió el cadete) o más allá. Antes solo se permitía
+// PENDIENTE, pero un pedido puede quedar CONFIRMADO casi al instante (ej. el
+// mismo cliente lo marca "listo" en el panel) sin que eso signifique que ya
+// es tarde para sumarle algo.
+const MODIFIABLE_STATUSES = ["PENDIENTE", "CONFIRMADO"] as const;
+function isModifiable(status: string): boolean {
+  return (MODIFIABLE_STATUSES as readonly string[]).includes(status);
+}
+
 async function resolveOrderItem(
   tx: Prisma.TransactionClient,
   item: OrderItemInput,
@@ -144,7 +155,7 @@ export async function createOrder(input: CreateOrderInput) {
 export async function addItemsToOrder(orderId: string, items: OrderInput["items"]) {
   return prisma.$transaction(async (tx) => {
     const order = await tx.order.findUnique({ where: { id: orderId } });
-    if (!order || order.status !== "PENDIENTE") return null;
+    if (!order || !isModifiable(order.status)) return null;
 
     let addedTotal = 0;
     const itemsData: Prisma.OrderItemCreateManyOrderInput[] = [];
@@ -173,7 +184,7 @@ export async function updatePendingOrderPayment(
   data: { method?: OrderInput["method"]; changeFor?: number | null },
 ) {
   const order = await prisma.order.findUnique({ where: { id: orderId } });
-  if (!order || order.status !== "PENDIENTE") return null;
+  if (!order || !isModifiable(order.status)) return null;
 
   return prisma.order.update({
     where: { id: orderId },
@@ -194,7 +205,7 @@ export async function updatePendingOrderChannel(
 ) {
   return prisma.$transaction(async (tx) => {
     const order = await tx.order.findUnique({ where: { id: orderId } });
-    if (!order || order.status !== "PENDIENTE") return null;
+    if (!order || !isModifiable(order.status)) return null;
 
     const previousFee = Number(order.deliveryFee ?? 0);
     const newFee = data.channel === "DELIVERY" ? DELIVERY_FEE : 0;
@@ -208,6 +219,138 @@ export async function updatePendingOrderChannel(
         shippingAddress: data.channel === "DELIVERY" ? (data.shippingAddress ?? order.shippingAddress) : null,
         total,
       },
+    });
+  });
+}
+
+// Después de agregar productos sueltos a un pedido (ej. el cliente ya tenía
+// una pizza y le suma empanadas por separado), puede pasar que la
+// combinación resultante coincida con una promo activa — en ese caso sale
+// más barato como promo que como productos sueltos, así que se consolida
+// automáticamente: se consumen las unidades sueltas que arma la promo (se
+// reducen o se borran esos renglones) y se agrega un renglón de promoción en
+// su lugar. Corre en un loop por si alcanza para formar más de una promo (o
+// más de una vez la misma). No hace nada si no hay ningún match.
+export async function reconcilePromotions(orderId: string) {
+  return prisma.$transaction(async (tx) => {
+    const order = await tx.order.findUnique({ where: { id: orderId } });
+    if (!order) return null;
+
+    const looseItems = await tx.orderItem.findMany({
+      where: { orderId, productId: { not: null } },
+      include: { product: true },
+    });
+    if (looseItems.length === 0) return order;
+
+    const promotions = await tx.promotion.findMany({
+      where: { active: true },
+      include: { items: { include: { product: true, category: true } } },
+    });
+    if (promotions.length === 0) return order;
+
+    type PoolEntry = { quantity: number; categoryId: string | null; name: string };
+    const pool = new Map<string, PoolEntry>();
+    for (const item of looseItems) {
+      if (!item.productId) continue;
+      const entry = pool.get(item.productId) ?? {
+        quantity: 0,
+        categoryId: item.product?.categoryId ?? null,
+        name: item.product?.name ?? "",
+      };
+      entry.quantity += item.quantity;
+      pool.set(item.productId, entry);
+    }
+
+    const consumed = new Map<string, number>();
+    const available = (productId: string) => (pool.get(productId)?.quantity ?? 0) - (consumed.get(productId) ?? 0);
+    const consume = (productId: string, qty: number) => consumed.set(productId, (consumed.get(productId) ?? 0) + qty);
+
+    const formed: { promotionId: string; price: number; selections: Record<string, unknown>[] }[] = [];
+
+    let matchedSomething = true;
+    while (matchedSomething) {
+      matchedSomething = false;
+
+      for (const promotion of promotions) {
+        const fijoParts = promotion.items.filter((i) => i.kind === "FIJO");
+        const variableParts = promotion.items.filter((i) => i.kind === "VARIABLE");
+
+        const fijoOk = fijoParts.every((part) => part.productId && available(part.productId) >= part.quantity);
+        const variableOk = variableParts.every((part) => {
+          const total = [...pool.entries()]
+            .filter(([, entry]) => entry.categoryId === part.categoryId)
+            .reduce((sum, [productId]) => sum + available(productId), 0);
+          return total >= part.quantity;
+        });
+        if (!fijoOk || !variableOk) continue;
+
+        const selections: Record<string, unknown>[] = [];
+        for (const part of fijoParts) {
+          if (!part.productId) continue;
+          consume(part.productId, part.quantity);
+          selections.push({
+            type: "FIJO",
+            productId: part.productId,
+            nombre: pool.get(part.productId)?.name ?? "",
+            cantidad: part.quantity,
+          });
+        }
+        for (const part of variableParts) {
+          let remaining = part.quantity;
+          const chosen: { productId: string; nombre: string }[] = [];
+          for (const [productId, entry] of pool.entries()) {
+            if (remaining <= 0) break;
+            if (entry.categoryId !== part.categoryId) continue;
+            const take = Math.min(available(productId), remaining);
+            if (take <= 0) continue;
+            consume(productId, take);
+            for (let i = 0; i < take; i++) chosen.push({ productId, nombre: entry.name });
+            remaining -= take;
+          }
+          selections.push({ type: "VARIABLE", categoria: "", productos: chosen });
+        }
+
+        formed.push({ promotionId: promotion.id, price: Number(promotion.price), selections });
+        matchedSomething = true;
+      }
+    }
+
+    if (formed.length === 0) return order;
+
+    // Reduce/borra los renglones sueltos según lo que se consumió.
+    for (const [productId, consumedQty] of consumed) {
+      let remainingToRemove = consumedQty;
+      const rows = looseItems.filter((item) => item.productId === productId);
+      for (const row of rows) {
+        if (remainingToRemove <= 0) break;
+        const take = Math.min(row.quantity, remainingToRemove);
+        if (take === row.quantity) {
+          await tx.orderItem.delete({ where: { id: row.id } });
+        } else {
+          await tx.orderItem.update({ where: { id: row.id }, data: { quantity: row.quantity - take } });
+        }
+        remainingToRemove -= take;
+      }
+    }
+
+    for (const promo of formed) {
+      await tx.orderItem.create({
+        data: {
+          orderId,
+          promotionId: promo.promotionId,
+          quantity: 1,
+          unitPrice: promo.price,
+          selections: promo.selections as Prisma.InputJsonValue,
+        },
+      });
+    }
+
+    const finalItems = await tx.orderItem.findMany({ where: { orderId } });
+    const itemsTotal = finalItems.reduce((sum, item) => sum + Number(item.unitPrice) * item.quantity, 0);
+
+    return tx.order.update({
+      where: { id: orderId },
+      data: { total: itemsTotal + Number(order.deliveryFee ?? 0) },
     });
   });
 }
