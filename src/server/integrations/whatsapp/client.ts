@@ -1,37 +1,33 @@
-const GRAPH_API_VERSION = "v21.0";
+// YCloud WhatsApp API — https://docs.ycloud.com/reference/whatsapp-message-sending-guide
+const YCLOUD_API_BASE = "https://api.ycloud.com/v2";
 
 export async function sendWhatsappTextMessage(to: string, body: string): Promise<string> {
-  const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
-  const accessToken = process.env.WHATSAPP_ACCESS_TOKEN;
+  const apiKey = process.env.YCLOUD_API_KEY;
+  const from = process.env.WHATSAPP_PHONE_NUMBER;
 
-  if (!phoneNumberId || !accessToken) {
-    throw new Error(
-      "WhatsApp no está configurado todavía (faltan WHATSAPP_PHONE_NUMBER_ID / WHATSAPP_ACCESS_TOKEN).",
-    );
+  if (!apiKey || !from) {
+    throw new Error("WhatsApp no está configurado todavía (faltan YCLOUD_API_KEY / WHATSAPP_PHONE_NUMBER).");
   }
 
-  const response = await fetch(
-    `https://graph.facebook.com/${GRAPH_API_VERSION}/${phoneNumberId}/messages`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        messaging_product: "whatsapp",
-        to,
-        type: "text",
-        text: { body },
-      }),
+  const response = await fetch(`${YCLOUD_API_BASE}/whatsapp/messages/sendDirectly`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-API-Key": apiKey,
     },
-  );
+    body: JSON.stringify({
+      from,
+      to,
+      type: "text",
+      text: { body },
+    }),
+  });
 
   if (!response.ok) {
     const errorBody = await response.text();
     throw new Error(`Error al enviar el mensaje de WhatsApp: ${errorBody}`);
   }
 
-  const data = (await response.json()) as { messages?: Array<{ id: string }> };
-  return data.messages?.[0]?.id ?? "";
+  const data = (await response.json()) as { id?: string; wamid?: string };
+  return data.wamid ?? data.id ?? "";
 }
