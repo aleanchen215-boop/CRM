@@ -34,9 +34,13 @@ npm install
 ### 2. Crear el proyecto de Supabase
 
 1. Crear un proyecto en [supabase.com](https://supabase.com).
-2. En **Project Settings → API**, copiar `Project URL` y `anon public key`.
-3. En **Project Settings → Database**, copiar la **Direct connection** string
-   (no la de connection pooling — el driver adapter de Prisma 7 se conecta directo).
+2. En **Project Settings → API**, copiar `Project URL` y la key `anon`/`publishable`
+   (nunca la `service_role`/`secret`).
+3. Botón **Connect** (arriba del proyecto) → pestaña **URI** → **Session pooler**.
+   No usar "Direct connection": esa solo resuelve por IPv6 y la mayoría de los
+   entornos (incluyendo este) no tienen salida IPv6, así que la conexión falla
+   con `P1001`. Tampoco usar "Transaction pooler" — no soporta bien los
+   prepared statements que usa el driver adapter de Prisma.
 
 ### 3. Configurar variables de entorno
 
