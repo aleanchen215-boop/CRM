@@ -70,4 +70,13 @@ export const conversationsRouter = router({
         data: { aiActive: input.aiActive },
       });
     }),
+
+  close: requirePermission("conversations:write")
+    .input(z.object({ conversationId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      return ctx.prisma.conversation.update({
+        where: { id: input.conversationId },
+        data: { status: "CERRADA" },
+      });
+    }),
 });

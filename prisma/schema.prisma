@@ -371,6 +371,9 @@ model Order {
   // Solo si method = EFECTIVO y el cliente avisó que paga con un billete
   // más grande: cuánto necesita de vuelto el cadete/mostrador.
   changeFor       Decimal?      @db.Decimal(12, 2)
+  // Pedidos especiales del cliente sobre la preparación (ej. "bien dorada",
+  // "sin cebolla") — texto libre, se muestra en cocina junto al pedido.
+  notes           String?
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 

@@ -140,6 +140,7 @@ export async function createOrder(input: CreateOrderInput) {
         changeFor: input.changeFor,
         shippingAddress: input.channel === "DELIVERY" ? input.shippingAddress : undefined,
         deliveryFee,
+        notes: input.notes,
         employeeId: input.employeeId,
         items: { createMany: { data: itemsData } },
         invoice: { create: { type: "INTERNO", status: "EMITIDO" } },
@@ -221,6 +222,34 @@ export async function updatePendingOrderChannel(
       },
     });
   });
+}
+
+// Agrega/reemplaza las observaciones de preparación de un pedido PENDIENTE o
+// CONFIRMADO (ej. "bien dorada", pedido por WhatsApp después de confirmar).
+// Si ya había una nota, se le suma la nueva separada por punto y coma en vez
+// de perderla. Devuelve null si el pedido ya no se puede tocar.
+export async function updatePendingOrderNotes(orderId: string, note: string) {
+  const order = await prisma.order.findUnique({ where: { id: orderId } });
+  if (!order || !isModifiable(order.status)) return null;
+
+  // El modelo a veces reenvía la misma observación que ya había guardado
+  // (igual que pasa con items) — si ya está anotada tal cual, no se repite.
+  const existing = order.notes?.split(";").map((part) => part.trim().toLowerCase()) ?? [];
+  if (existing.includes(note.trim().toLowerCase())) return order;
+
+  const notes = order.notes ? `${order.notes}; ${note}` : note;
+
+  return prisma.order.update({ where: { id: orderId }, data: { notes } });
+}
+
+// Cancela un pedido PENDIENTE o CONFIRMADO (ej. el cliente avisa por
+// WhatsApp que ya no lo quiere). Devuelve null si ya no se puede tocar (ya
+// salió a entregar, ya se entregó, o ya estaba cancelado).
+export async function cancelPendingOrder(orderId: string) {
+  const order = await prisma.order.findUnique({ where: { id: orderId } });
+  if (!order || !isModifiable(order.status)) return null;
+
+  return prisma.order.update({ where: { id: orderId }, data: { status: "CANCELADO" } });
 }
 
 // Después de agregar productos sueltos a un pedido (ej. el cliente ya tenía

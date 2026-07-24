@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { toast } from "sonner";
-import { Bot, Send, UserCog } from "lucide-react";
+import { Bot, Send, UserCog, X } from "lucide-react";
 import { trpc } from "@/lib/trpc/client";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -38,6 +38,17 @@ export function MessageThread({ conversationId }: { conversationId: string }) {
 
   const setAiActive = trpc.conversations.setAiActive.useMutation({
     onSuccess: async () => {
+      await Promise.all([
+        utils.conversations.getById.invalidate({ id: conversationId }),
+        utils.conversations.list.invalidate(),
+      ]);
+    },
+    onError: (error) => toast.error(error.message),
+  });
+
+  const closeConversation = trpc.conversations.close.useMutation({
+    onSuccess: async () => {
+      toast.success("Conversación cerrada");
       await Promise.all([
         utils.conversations.getById.invalidate({ id: conversationId }),
         utils.conversations.list.invalidate(),
@@ -103,6 +114,22 @@ export function MessageThread({ conversationId }: { conversationId: string }) {
               </>
             )}
           </Button>
+          {conversation.status !== "CERRADA" && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={closeConversation.isPending}
+              onClick={() => {
+                if (window.confirm("¿Cerrar esta conversación? El próximo mensaje del cliente va a arrancar una conversación nueva.")) {
+                  closeConversation.mutate({ conversationId });
+                }
+              }}
+            >
+              <X />
+              Cerrar conversación
+            </Button>
+          )}
         </div>
       </div>
 

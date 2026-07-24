@@ -2,8 +2,10 @@ import OpenAI from "openai";
 import type { ChatCompletionMessageParam, ChatCompletionTool } from "openai/resources/chat/completions";
 import { prisma } from "@/lib/prisma";
 import {
+  CANCEL_ORDER_TOOL,
   CREATE_ORDER_TOOL,
   MODIFY_ORDER_TOOL,
+  handleCancelOrder,
   handleCreateOrder,
   handleModifyOrder,
 } from "@/server/ai/create-order-tool";
@@ -65,6 +67,10 @@ Cómo tomar un pedido (seguí este orden, una pregunta a la vez, sin agobiar):
 Si el cliente pregunta si le vamos a avisar cuando el pedido esté listo (o pide que le avisen), respondé que sí, sin dudarlo — ese aviso se manda desde el local cuando corresponda, vos no tenés que hacer nada más ni llamar ninguna herramienta para eso, solo confirmarle que sí.
 
 Si el cliente YA hizo un pedido en esta conversación (ya llamaste a crear_pedido) y después de eso pide agregar algo más, pedir de nuevo el link de pago, cambiar cómo paga, o cambiar entre retirar y envío: NUNCA le digas que no podés ayudarlo con eso. Usá la herramienta modificar_pedido (no crear_pedido de nuevo) — te va a avisar si el pedido ya no se puede tocar porque salió el cadete. Ejemplos: "quiero agregar 3 empanadas" → modificar_pedido con esas empanadas en items; "pasame el link de mercado pago" o "mejor pago por transferencia" → modificar_pedido con metodoPago: TRANSFERENCIA; "mejor que me lo envíen" → modificar_pedido con canal: DELIVERY y preguntando la dirección si no la tenías ya. Si al agregar algo se termina armando una promo (ej. ya tenía una pizza suelta y las empanadas nuevas completan el combo), el sistema lo aplica solo — el total que te devuelve la herramienta ya tiene el precio correcto, usá siempre ESE número tal cual, no lo recalcules vos.
+
+Observaciones de preparación: si el cliente pide algo especial sobre cómo preparar su pedido (ej. "que esté bien dorada", "sin cebolla", "cortala en 8"), guardalo en el campo observaciones de crear_pedido (o de modificar_pedido si el pedido ya existía) tal cual lo dijo, en pocas palabras. No inventes observaciones que el cliente no mencionó, y no lo confirmes como si fuera parte del catálogo (ej. "bien dorada" NO es una variante de la pizza que exista para elegir — es solo una nota para la cocina).
+
+Cancelar un pedido: si el cliente dice que ya no quiere el pedido que hizo, preguntale UNA vez para confirmar ("¿confirmás que cancelamos el pedido?") y en cuanto te diga que sí, llamá a cancelar_pedido de inmediato, en ese mismo turno. No la llames por dudas ambiguas — si no está claro que quiere cancelar del todo, preguntá primero.
 
 Reglas para no trabarte en un loop de saludos (esto es CRÍTICO):
 - Mirá siempre el ÚLTIMO mensaje del cliente en la conversación y respondé específicamente a ESO, no un saludo genérico. Si ya se saludaron antes en esta conversación, no vuelvas a saludar — andá directo al punto.
@@ -228,7 +234,13 @@ export async function generateAiReply(
     const completion = await openai.chat.completions.create({
       model: MODEL,
       messages,
-      tools: [SEARCH_PRODUCTS_TOOL, SEARCH_PROMOTIONS_TOOL, CREATE_ORDER_TOOL, MODIFY_ORDER_TOOL],
+      tools: [
+        SEARCH_PRODUCTS_TOOL,
+        SEARCH_PROMOTIONS_TOOL,
+        CREATE_ORDER_TOOL,
+        MODIFY_ORDER_TOOL,
+        CANCEL_ORDER_TOOL,
+      ],
       // Bajo (no 0) para que siga las reglas del prompt de forma consistente
       // — a temperatura default el modelo variaba mucho de una corrida a
       // otra en el mismo punto de la conversación (a veces no llamaba a
@@ -269,6 +281,8 @@ export async function generateAiReply(
         } else if (call.function.name === "modificar_pedido") {
           const args = JSON.parse(call.function.arguments);
           output = await handleModifyOrder(customerId, args);
+        } else if (call.function.name === "cancelar_pedido") {
+          output = await handleCancelOrder(customerId);
         }
       } catch (error) {
         output = error instanceof Error ? error.message : "[]";

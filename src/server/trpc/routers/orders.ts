@@ -15,8 +15,12 @@ const NOTIFICATION_MESSAGES = {
 } as const;
 
 export const ordersRouter = router({
+  // Los cancelados no aparecen en el tablero de ventas (quedan afuera de la
+  // vista, no se borran de la base) — el detalle sigue accesible por link
+  // directo si hace falta consultarlo.
   list: requirePermission("orders:read").query(async ({ ctx }) => {
     const orders = await ctx.prisma.order.findMany({
+      where: { status: { not: "CANCELADO" } },
       orderBy: { createdAt: "desc" },
       include: { customer: true, _count: { select: { items: true } } },
     });
@@ -59,6 +63,20 @@ export const ordersRouter = router({
       const order = await ctx.prisma.order.update({
         where: { id: input.id },
         data: { status: input.status },
+      });
+
+      return toNumber(order);
+    }),
+
+  cancel: requirePermission("orders:cancel")
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const current = await ctx.prisma.order.findUnique({ where: { id: input.id } });
+      if (!current) throw new TRPCError({ code: "NOT_FOUND" });
+
+      const order = await ctx.prisma.order.update({
+        where: { id: input.id },
+        data: { status: "CANCELADO" },
       });
 
       return toNumber(order);

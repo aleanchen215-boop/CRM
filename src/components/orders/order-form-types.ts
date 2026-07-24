@@ -12,4 +12,5 @@ export type OrderFormValues = {
   customerId: string;
   method: (typeof paymentMethodValues)[number];
   items: OrderRowValue[];
+  notes: string;
 };

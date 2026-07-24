@@ -3,9 +3,11 @@ import { prisma } from "@/lib/prisma";
 import {
   DELIVERY_FEE,
   addItemsToOrder,
+  cancelPendingOrder,
   createOrder,
   reconcilePromotions,
   updatePendingOrderChannel,
+  updatePendingOrderNotes,
   updatePendingOrderPayment,
 } from "@/server/orders/create-order";
 import { createMercadoPagoPreference } from "@/server/integrations/mercadopago/client";
@@ -68,6 +70,11 @@ export const CREATE_ORDER_TOOL: ChatCompletionTool = {
             required: ["nombre"],
           },
         },
+        observaciones: {
+          type: "string",
+          description:
+            "Pedidos especiales del cliente sobre la preparación (ej. \"bien dorada\", \"sin cebolla\", \"cortada en 8\"). SOLO si el cliente dice algo así explícitamente — no inventes ni asumas nada. Omitir si no dijo nada especial.",
+        },
       },
       required: ["canal", "items"],
     },
@@ -127,6 +134,7 @@ interface CreateOrderArgs {
     cantidad?: number;
     sabores?: string[];
   }>;
+  observaciones?: string;
 }
 
 type ItemArg = { nombre: string; cantidad?: number; sabores?: string[] };
@@ -261,6 +269,7 @@ export async function handleCreateOrder(
     changeFor: metodoPago === "EFECTIVO" ? args.pagaCon : undefined,
     shippingAddress: args.canal === "DELIVERY" ? args.direccion : undefined,
     deliveryFee,
+    notes: args.observaciones?.trim() || undefined,
     items: orderItems,
   });
 
@@ -342,6 +351,11 @@ export const MODIFY_ORDER_TOOL: ChatCompletionTool = {
           description:
             "Solo si metodoPago=EFECTIVO y aclara con cuánto paga (para el vuelto). Omitir si no aplica.",
         },
+        observaciones: {
+          type: "string",
+          description:
+            "Pedidos especiales nuevos sobre la preparación que el cliente menciona ahora (ej. \"bien dorada\"). Se suman a las que ya hubiera, no las reemplazan. Omitir si no dijo nada especial en este mensaje.",
+        },
       },
       required: [],
     },
@@ -354,6 +368,7 @@ interface ModifyOrderArgs {
   direccion?: string;
   metodoPago?: "EFECTIVO" | "TRANSFERENCIA";
   pagaCon?: number;
+  observaciones?: string;
 }
 
 export async function handleModifyOrder(customerId: string, args: ModifyOrderArgs): Promise<string> {
@@ -418,6 +433,10 @@ export async function handleModifyOrder(customerId: string, args: ModifyOrderArg
     await updatePendingOrderPayment(order.id, { changeFor: args.pagaCon });
   }
 
+  if (args.observaciones?.trim()) {
+    await updatePendingOrderNotes(order.id, args.observaciones.trim());
+  }
+
   const finalOrder = await prisma.order.findUnique({ where: { id: order.id } });
   if (!finalOrder) return "Hubo un problema actualizando el pedido, reintentá.";
 
@@ -435,4 +454,31 @@ export async function handleModifyOrder(customerId: string, args: ModifyOrderArg
   }
 
   return `Pedido actualizado. Nuevo total: $${total.toLocaleString("es-AR")}${deliveryNote}, paga en efectivo.`;
+}
+
+export const CANCEL_ORDER_TOOL: ChatCompletionTool = {
+  type: "function",
+  function: {
+    name: "cancelar_pedido",
+    description:
+      "Cancela el pedido en curso de este cliente (el más reciente que no haya salido a entregar todavía). Usar SOLO cuando el cliente confirma explícitamente que ya no lo quiere — no la llames por dudas ambiguas, primero preguntale si está seguro. Si no hay ningún pedido para cancelar, o ya está muy avanzado para cancelarlo, esta herramienta te va a avisar.",
+    parameters: { type: "object", properties: {}, required: [] },
+  },
+};
+
+export async function handleCancelOrder(customerId: string): Promise<string> {
+  const order = await prisma.order.findFirst({
+    where: { customerId, status: { in: ["PENDIENTE", "CONFIRMADO"] } },
+    orderBy: { createdAt: "desc" },
+  });
+  if (!order) {
+    return "Este cliente no tiene ningún pedido en curso para cancelar.";
+  }
+
+  const cancelled = await cancelPendingOrder(order.id);
+  if (!cancelled) {
+    return "Este pedido ya no se puede cancelar por acá (ya salió a entregar o ya se entregó) — avisale al cliente que se comunique directo con el local.";
+  }
+
+  return "Pedido cancelado.";
 }

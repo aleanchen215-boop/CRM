@@ -52,6 +52,7 @@ export const orderInputSchema = z.object({
   channel: z.enum(salesChannelValues).default("MOSTRADOR"),
   channelSource: z.string().trim().optional(),
   items: z.array(orderItemInputSchema).min(1, "Agregá al menos un producto"),
+  notes: z.string().trim().max(500).optional(),
 });
 
 export const orderStatusUpdateSchema = z.object({

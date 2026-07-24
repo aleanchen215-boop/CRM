@@ -10,6 +10,7 @@ import { trpc } from "@/lib/trpc/client";
 import { formatCurrency } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -95,6 +96,7 @@ export function OrderForm({
       customerId: "",
       method: "EFECTIVO",
       items: [emptyRow()],
+      notes: "",
     },
   });
 
@@ -135,6 +137,7 @@ export function OrderForm({
       channel,
       channelSource,
       items: toApiItems(values.items),
+      notes: values.notes.trim() || undefined,
     });
   });
 
@@ -242,6 +245,22 @@ export function OrderForm({
               <Plus />
               Agregar renglón
             </Button>
+          </Field>
+
+          <Field>
+            <FieldLabel htmlFor="notes">Observaciones</FieldLabel>
+            <Controller
+              control={form.control}
+              name="notes"
+              render={({ field }) => (
+                <Textarea
+                  id="notes"
+                  placeholder="Ej: pizza bien dorada, sin cebolla…"
+                  rows={2}
+                  {...field}
+                />
+              )}
+            />
           </Field>
 
           <div className="flex items-center justify-between rounded-lg border bg-muted/40 px-3 py-2 text-sm">

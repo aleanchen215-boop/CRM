@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { OrderStatusBadge } from "@/components/orders/order-status-badge";
 import { OrderStatusSelect } from "@/components/orders/order-status-select";
 import { OrderNotifyButton } from "@/components/orders/order-notify-button";
+import { OrderCancelButton } from "@/components/orders/order-cancel-button";
 
 const METHOD_LABELS: Record<string, string> = {
   MERCADO_PAGO: "Mercado Pago",
@@ -103,6 +104,7 @@ export default function OrderDetailPage({
         <div className="flex items-center gap-2">
           <OrderNotifyButton orderId={order.id} channel={order.channel} />
           <OrderStatusSelect orderId={order.id} status={order.status} />
+          <OrderCancelButton orderId={order.id} status={order.status} />
           <Button variant="outline" size="sm" onClick={() => window.print()}>
             <Printer />
             Imprimir comprobante
@@ -155,6 +157,13 @@ export default function OrderDetailPage({
               ))}
             </tbody>
           </table>
+
+          {order.notes && (
+            <div className="rounded-lg border bg-muted/40 px-3 py-2 text-sm">
+              <p className="font-medium">Observaciones</p>
+              <p className="text-muted-foreground">{order.notes}</p>
+            </div>
+          )}
 
           <div className="flex justify-end">
             <div className="flex items-center gap-4 text-sm">
