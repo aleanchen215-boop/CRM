@@ -25,7 +25,8 @@ const MODEL = process.env.OPENROUTER_MODEL ?? "openai/gpt-4o-mini";
 const DEFAULT_SYSTEM_PROMPT = `Sos quien atiende el WhatsApp de una pizzería que vende pizzas y empanadas. Escribís como una persona real charlando por WhatsApp, no como un bot: tono canchero y cordial, oraciones cortas, podés usar "dale", "genial", algún emoji suelto — pero sin exagerar ni sonar siempre igual. Variá cómo saludás y cómo confirmás cosas, no repitas las mismas frases hechas en cada mensaje. Sé breve y concreto: no des explicaciones de más ni ofrezcas o preguntes nada que el cliente no pidió.
 
 Reglas de estilo y horario:
-- No llames al cliente por su nombre, ni uses símbolos raros o emojis en exceso.
+- No llames al cliente por su nombre, ni uses símbolos raros o emojis en exceso (nada de emojis-número tipo 1️⃣2️⃣, ni robots 🤖, ni caracteres que no sean letras normales del español).
+- Formato de texto: esto es WhatsApp, no un chat con markdown. Para negrita usá UN solo asterisco de cada lado (*así*), NUNCA dos (**así** se ve mal, no lo hagas). Nunca uses tablas (con | y guiones), ni encabezados con #, ni bloques de código. Si necesitás listar cosas, usá líneas simples con "-", nada más.
 - Horario de atención: domingo a jueves de 19:00 a 23:00, viernes y sábado de 19:00 a 23:30.
 - Si te preguntan cómo estás, respondé simplemente "Bien, gracias" y seguí la charla con naturalidad.
 - Saludá preguntando cómo está solo en el primer mensaje del día en esa conversación — después no vuelvas a saludar.
@@ -101,6 +102,39 @@ function normalize(text: string) {
 
 function formatArs(value: number) {
   return `$${value.toLocaleString("es-AR")}`;
+}
+
+// El modelo a veces escribe markdown de chat normal (negrita con **, tablas
+// con |, encabezados con #) aunque el prompt le pida no hacerlo — WhatsApp
+// no entiende nada de eso salvo la negrita con UN asterisco, así que se
+// sanea acá antes de mandar/guardar el mensaje, en vez de confiar solo en
+// que el modelo lo respete siempre.
+function sanitizeForWhatsapp(text: string): string {
+  const lines = text.split("\n").map((line) => {
+    const trimmed = line.trim();
+    // Fila separadora de tabla markdown, ej. |---|---| o |:---:|:---:|
+    if (trimmed.length > 0 && /^[|\s:-]+$/.test(trimmed) && trimmed.includes("-")) {
+      return null;
+    }
+    // Fila de tabla markdown: | A | B | C | -> "A - B - C"
+    if (trimmed.startsWith("|") && trimmed.endsWith("|")) {
+      const cells = trimmed
+        .slice(1, -1)
+        .split("|")
+        .map((cell) => cell.trim())
+        .filter(Boolean);
+      return cells.join(" - ");
+    }
+    // Encabezados markdown (#, ##, ...)
+    return trimmed.replace(/^#{1,6}\s*/, "");
+  });
+
+  return lines
+    .filter((line): line is string => line !== null)
+    .join("\n")
+    .replace(/\*\*(.+?)\*\*/g, "*$1*") // negrita de dos asteriscos -> uno solo (WhatsApp)
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 async function searchProducts(
@@ -204,7 +238,7 @@ export async function generateAiReply(
 
     if (!message?.tool_calls || message.tool_calls.length === 0) {
       return {
-        text: message?.content || "Perdón, ¿podés repetir tu consulta?",
+        text: sanitizeForWhatsapp(message?.content || "Perdón, ¿podés repetir tu consulta?"),
         costTokens: totalTokens,
       };
     }
