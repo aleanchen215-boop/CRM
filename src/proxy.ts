@@ -53,5 +53,8 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)"],
+  // /api queda afuera: los webhooks (Meta, Mercado Pago) no tienen sesión de
+  // Supabase y no deben terminar redirigidos a /login. La autorización de
+  // /api/trpc ya la maneja cada procedure, y los webhooks verifican firma propia.
+  matcher: ["/((?!api|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)"],
 };
