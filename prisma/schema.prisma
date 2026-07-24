@@ -1,0 +1,465 @@
+// Prisma schema — CRM Paracao
+// Prisma ORM 7: connection URL lives in prisma.config.ts, not here.
+// See .agents/skills/prisma-upgrade-v7 for the conventions this schema follows.
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------- Identidad y permisos ----------
+
+enum UserRole {
+  ADMIN
+  VENDEDOR
+  DEPOSITO
+  ATENCION
+  SUPERVISOR
+}
+
+model User {
+  id        String   @id @default(uuid())
+  // Coincide con el id de Supabase Auth (auth.users.id) — no hay password acá,
+  // Supabase Auth es dueño de las credenciales.
+  authId    String   @unique
+  email     String   @unique
+  name      String
+  role      UserRole
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  assignedConversations Conversation[] @relation("AssignedEmployee")
+  orders                Order[]
+  auditLogs             AuditLog[]
+
+  @@map("users")
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  entity    String
+  entityId  String
+  action    String
+  diff      Json?
+  createdAt DateTime @default(now())
+
+  @@index([entity, entityId])
+  @@map("audit_logs")
+}
+
+// ---------- Clientes ----------
+
+enum CustomerStatus {
+  ACTIVO
+  INACTIVO
+  PERDIDO
+}
+
+model Customer {
+  id        String         @id @default(uuid())
+  firstName String
+  lastName  String
+  whatsapp  String         @unique
+  email     String?
+  address   String?
+  city      String?
+  province  String?
+  country   String?
+  status    CustomerStatus @default(ACTIVO)
+  origin    String?
+  notes     String?
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  tags          CustomerTag[]
+  categories    CustomerCategoryAssignment[]
+  conversations Conversation[]
+  orders        Order[]
+
+  @@map("customers")
+}
+
+model CustomerTag {
+  id         String   @id @default(uuid())
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  tag        String
+  createdAt  DateTime @default(now())
+
+  @@unique([customerId, tag])
+  @@map("customer_tags")
+}
+
+model CustomerCategory {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  // Reglas evaluadas por el motor de clasificación, ej:
+  // { "diasSinComprar": 90, "montoMinimoGastado": 100000 }
+  rules     Json?
+  createdAt DateTime @default(now())
+
+  assignments CustomerCategoryAssignment[]
+
+  @@map("customer_categories")
+}
+
+enum CategoryAssignmentSource {
+  MANUAL
+  REGLA
+  IA
+}
+
+model CustomerCategoryAssignment {
+  id         String                   @id @default(uuid())
+  customerId String
+  customer   Customer                 @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  categoryId String
+  category   CustomerCategory         @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  source     CategoryAssignmentSource
+  assignedAt DateTime                 @default(now())
+
+  @@unique([customerId, categoryId])
+  @@map("customer_category_assignments")
+}
+
+// ---------- Conversaciones ----------
+
+enum ConversationStatus {
+  ABIERTA
+  PENDIENTE
+  CERRADA
+}
+
+model Conversation {
+  id                 String             @id @default(uuid())
+  customerId         String
+  customer           Customer           @relation(fields: [customerId], references: [id])
+  status             ConversationStatus @default(ABIERTA)
+  aiActive           Boolean            @default(true)
+  assignedEmployeeId String?
+  assignedEmployee   User?              @relation("AssignedEmployee", fields: [assignedEmployeeId], references: [id])
+  lastMessageAt      DateTime           @default(now())
+  createdAt          DateTime           @default(now())
+
+  messages Message[]
+
+  @@map("conversations")
+}
+
+enum MessageSender {
+  CLIENTE
+  IA
+  EMPLEADO
+}
+
+enum MessageType {
+  TEXTO
+  IMAGEN
+  PDF
+  AUDIO
+  UBICACION
+}
+
+model Message {
+  id                String        @id @default(uuid())
+  conversationId    String
+  conversation      Conversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender            MessageSender
+  content           String
+  type              MessageType   @default(TEXTO)
+  approved          Boolean       @default(false)
+  edited            Boolean       @default(false)
+  whatsappMessageId String?       @unique
+  createdAt         DateTime      @default(now())
+
+  aiResponseLog AiResponseLog?
+
+  @@map("messages")
+}
+
+// ---------- Catálogo y stock ----------
+
+model Supplier {
+  id        String   @id @default(uuid())
+  name      String
+  contact   String?
+  createdAt DateTime @default(now())
+
+  products Product[]
+
+  @@map("suppliers")
+}
+
+model ProductCategory {
+  id       String    @id @default(uuid())
+  name     String    @unique
+  products Product[]
+
+  @@map("product_categories")
+}
+
+model Product {
+  id             String           @id @default(uuid())
+  sku            String           @unique
+  internalCode   String?          @unique
+  name           String
+  categoryId     String?
+  category       ProductCategory? @relation(fields: [categoryId], references: [id])
+  supplierId     String?
+  supplier       Supplier?        @relation(fields: [supplierId], references: [id])
+  cost           Decimal          @db.Decimal(12, 2)
+  price          Decimal          @db.Decimal(12, 2)
+  stockActual    Int              @default(0)
+  stockReservado Int              @default(0)
+  stockMinimo    Int              @default(0)
+  stockIdeal     Int              @default(0)
+  location       String?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  variants   ProductVariant[]
+  images     ProductImage[]
+  movements  StockMovement[]
+  orderItems OrderItem[]
+
+  @@map("products")
+}
+
+model ProductVariant {
+  id        String  @id @default(uuid())
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  attribute String
+  value     String
+  sku       String  @unique
+  stock     Int     @default(0)
+
+  @@map("product_variants")
+}
+
+model ProductImage {
+  id        String  @id @default(uuid())
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  url       String
+
+  @@map("product_images")
+}
+
+enum StockMovementType {
+  ENTRADA
+  SALIDA
+  AJUSTE
+}
+
+model StockMovement {
+  id        String            @id @default(uuid())
+  productId String
+  product   Product           @relation(fields: [productId], references: [id])
+  type      StockMovementType
+  quantity  Int
+  reason    String?
+  orderId   String?
+  order     Order?            @relation(fields: [orderId], references: [id])
+  createdAt DateTime          @default(now())
+
+  @@map("stock_movements")
+}
+
+// ---------- Ventas y facturación ----------
+
+enum OrderStatus {
+  PENDIENTE
+  CONFIRMADO
+  ENVIADO
+  ENTREGADO
+  CANCELADO
+}
+
+enum PaymentMethod {
+  MERCADO_PAGO
+  EFECTIVO
+  TRANSFERENCIA
+  OTRO
+}
+
+enum SalesChannel {
+  WHATSAPP
+  MOSTRADOR
+  OTRO
+}
+
+model Order {
+  id         String        @id @default(uuid())
+  customerId String
+  customer   Customer      @relation(fields: [customerId], references: [id])
+  status     OrderStatus   @default(PENDIENTE)
+  method     PaymentMethod
+  channel    SalesChannel  @default(WHATSAPP)
+  employeeId String?
+  employee   User?         @relation(fields: [employeeId], references: [id])
+  total      Decimal       @db.Decimal(12, 2)
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+
+  items          OrderItem[]
+  invoice        Invoice?
+  payments       Payment[]
+  shipment       Shipment?
+  stockMovements StockMovement[]
+
+  @@map("orders")
+}
+
+model OrderItem {
+  id        String  @id @default(uuid())
+  orderId   String
+  order     Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product @relation(fields: [productId], references: [id])
+  quantity  Int
+  unitPrice Decimal @db.Decimal(12, 2)
+
+  @@map("order_items")
+}
+
+enum InvoiceType {
+  INTERNO
+  AFIP
+}
+
+enum InvoiceStatus {
+  EMITIDO
+  ANULADO
+}
+
+model Invoice {
+  id        String        @id @default(uuid())
+  orderId   String        @unique
+  order     Order         @relation(fields: [orderId], references: [id])
+  type      InvoiceType   @default(INTERNO)
+  pdfUrl    String?
+  status    InvoiceStatus @default(EMITIDO)
+  createdAt DateTime      @default(now())
+
+  @@map("invoices")
+}
+
+enum PaymentStatus {
+  PENDIENTE
+  APROBADO
+  RECHAZADO
+  REEMBOLSADO
+}
+
+model Payment {
+  id                   String        @id @default(uuid())
+  orderId              String
+  order                Order         @relation(fields: [orderId], references: [id])
+  mercadoPagoPaymentId String?       @unique
+  status               PaymentStatus @default(PENDIENTE)
+  amount               Decimal       @db.Decimal(12, 2)
+  method               PaymentMethod
+  createdAt            DateTime      @default(now())
+
+  @@map("payments")
+}
+
+enum ShipmentStatus {
+  PENDIENTE
+  EN_CAMINO
+  ENTREGADO
+}
+
+model Shipment {
+  id        String         @id @default(uuid())
+  orderId   String         @unique
+  order     Order          @relation(fields: [orderId], references: [id])
+  status    ShipmentStatus @default(PENDIENTE)
+  tracking  String?
+  createdAt DateTime       @default(now())
+
+  @@map("shipments")
+}
+
+// ---------- IA ----------
+
+enum AiDocumentType {
+  PDF
+  FAQ
+  POLITICA
+}
+
+model AiDocument {
+  id        String         @id @default(uuid())
+  name      String
+  type      AiDocumentType
+  content   String
+  // pgvector: agregada vía migración SQL manual (Prisma no modela `vector` nativamente).
+  createdAt DateTime       @default(now())
+
+  @@map("ai_documents")
+}
+
+model AiResponseLog {
+  id         String   @id @default(uuid())
+  messageId  String   @unique
+  message    Message  @relation(fields: [messageId], references: [id])
+  promptUsed String?
+  response   String
+  approved   Boolean  @default(false)
+  editedBy   String?
+  costTokens Int?
+  createdAt  DateTime @default(now())
+
+  @@map("ai_responses_log")
+}
+
+model AiSettings {
+  id           String   @id @default(uuid())
+  version      Int      @unique
+  systemPrompt String
+  activeSince  DateTime @default(now())
+
+  @@map("ai_settings")
+}
+
+// ---------- Automatizaciones ----------
+
+model AutomationFlow {
+  id         String   @id @default(uuid())
+  name       String
+  definition Json
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now())
+
+  runs AutomationRun[]
+
+  @@map("automation_flows")
+}
+
+enum AutomationRunStatus {
+  EN_PROGRESO
+  COMPLETADO
+  ERROR
+}
+
+model AutomationRun {
+  id           String              @id @default(uuid())
+  flowId       String
+  flow         AutomationFlow      @relation(fields: [flowId], references: [id])
+  triggerEvent String
+  status       AutomationRunStatus @default(EN_PROGRESO)
+  log          Json?
+  createdAt    DateTime            @default(now())
+
+  @@map("automation_runs")
+}
