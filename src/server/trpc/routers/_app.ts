@@ -5,9 +5,10 @@ import { productsRouter } from "@/server/trpc/routers/products";
 import { suppliesRouter } from "@/server/trpc/routers/supplies";
 import { ordersRouter } from "@/server/trpc/routers/orders";
 import { conversationsRouter } from "@/server/trpc/routers/conversations";
+import { aiRouter } from "@/server/trpc/routers/ai";
 
-// Routers de dominio restantes (ai, automations, reports, users) se suman
-// acá a medida que se implementan en las siguientes fases.
+// Routers de dominio restantes (automations, reports, users) se suman acá
+// a medida que se implementan en las siguientes fases.
 export const appRouter = router({
   system: systemRouter,
   customers: customersRouter,
@@ -15,6 +16,7 @@ export const appRouter = router({
   supplies: suppliesRouter,
   orders: ordersRouter,
   conversations: conversationsRouter,
+  ai: aiRouter,
 });
 
 export type AppRouter = typeof appRouter;

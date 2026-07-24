@@ -1,5 +1,6 @@
 "use client";
 
+import { Bot } from "lucide-react";
 import { trpc } from "@/lib/trpc/client";
 import { cn } from "@/lib/utils";
 import { ConversationStatusBadge } from "@/components/conversations/conversation-status-badge";
@@ -41,7 +42,10 @@ export function ConversationList({
           )}
         >
           <div className="flex items-center justify-between gap-2">
-            <span className="font-medium">
+            <span className="flex items-center gap-1.5 font-medium">
+              {conversation.aiActive && (
+                <Bot className="size-3.5 shrink-0 text-muted-foreground" />
+              )}
               {conversation.customer.firstName} {conversation.customer.lastName}
             </span>
             <ConversationStatusBadge status={conversation.status} />

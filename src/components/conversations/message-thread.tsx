@@ -2,13 +2,19 @@
 
 import { useState } from "react";
 import { toast } from "sonner";
-import { Send } from "lucide-react";
+import { Bot, Send, UserCog } from "lucide-react";
 import { trpc } from "@/lib/trpc/client";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ConversationStatusBadge } from "@/components/conversations/conversation-status-badge";
+
+function senderLabel(sender: string, customerName: string) {
+  if (sender === "EMPLEADO") return "Vos";
+  if (sender === "IA") return "IA";
+  return customerName;
+}
 
 export function MessageThread({ conversationId }: { conversationId: string }) {
   const [draft, setDraft] = useState("");
@@ -22,6 +28,16 @@ export function MessageThread({ conversationId }: { conversationId: string }) {
   const sendMessage = trpc.conversations.sendMessage.useMutation({
     onSuccess: async () => {
       setDraft("");
+      await Promise.all([
+        utils.conversations.getById.invalidate({ id: conversationId }),
+        utils.conversations.list.invalidate(),
+      ]);
+    },
+    onError: (error) => toast.error(error.message),
+  });
+
+  const setAiActive = trpc.conversations.setAiActive.useMutation({
+    onSuccess: async () => {
       await Promise.all([
         utils.conversations.getById.invalidate({ id: conversationId }),
         utils.conversations.list.invalidate(),
@@ -64,7 +80,30 @@ export function MessageThread({ conversationId }: { conversationId: string }) {
           </p>
           <p className="text-xs text-muted-foreground">{conversation.customer.whatsapp}</p>
         </div>
-        <ConversationStatusBadge status={conversation.status} />
+        <div className="flex items-center gap-2">
+          <ConversationStatusBadge status={conversation.status} />
+          <Button
+            type="button"
+            size="sm"
+            variant={conversation.aiActive ? "outline" : "default"}
+            disabled={setAiActive.isPending}
+            onClick={() =>
+              setAiActive.mutate({ conversationId, aiActive: !conversation.aiActive })
+            }
+          >
+            {conversation.aiActive ? (
+              <>
+                <UserCog />
+                Atender yo
+              </>
+            ) : (
+              <>
+                <Bot />
+                Reactivar IA
+              </>
+            )}
+          </Button>
+        </div>
       </div>
 
       <div className="flex flex-1 flex-col gap-2 overflow-y-auto p-4">
@@ -78,17 +117,21 @@ export function MessageThread({ conversationId }: { conversationId: string }) {
               "max-w-[75%] rounded-lg px-3 py-2 text-sm",
               message.sender === "CLIENTE"
                 ? "self-start bg-muted"
-                : "self-end bg-primary text-primary-foreground",
+                : message.sender === "IA"
+                  ? "self-end bg-secondary text-secondary-foreground"
+                  : "self-end bg-primary text-primary-foreground",
             )}
           >
             <p>{message.content}</p>
             <p
               className={cn(
                 "mt-1 text-[10px] opacity-70",
-                message.sender === "CLIENTE" ? "text-muted-foreground" : "text-primary-foreground",
+                message.sender === "CLIENTE" || message.sender === "IA"
+                  ? "text-muted-foreground"
+                  : "text-primary-foreground",
               )}
             >
-              {message.sender === "EMPLEADO" ? "Vos" : conversation.customer.firstName} ·{" "}
+              {senderLabel(message.sender, conversation.customer.firstName)} ·{" "}
               {new Date(message.createdAt).toLocaleTimeString("es-AR", {
                 hour: "2-digit",
                 minute: "2-digit",

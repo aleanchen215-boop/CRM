@@ -54,9 +54,20 @@ export const conversationsRouter = router({
 
       await ctx.prisma.conversation.update({
         where: { id: conversation.id },
-        data: { lastMessageAt: new Date() },
+        // Si un empleado escribe manualmente, asumimos que tomó la conversación:
+        // se apaga la IA para que no le pise la respuesta al cliente.
+        data: { lastMessageAt: new Date(), aiActive: false },
       });
 
       return message;
+    }),
+
+  setAiActive: requirePermission("conversations:write")
+    .input(z.object({ conversationId: z.string(), aiActive: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      return ctx.prisma.conversation.update({
+        where: { id: input.conversationId },
+        data: { aiActive: input.aiActive },
+      });
     }),
 });

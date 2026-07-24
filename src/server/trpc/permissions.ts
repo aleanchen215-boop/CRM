@@ -9,6 +9,7 @@ export const PERMISSIONS = {
   "conversations:read": ["ADMIN", "VENDEDOR", "ATENCION", "SUPERVISOR"],
   "conversations:write": ["ADMIN", "VENDEDOR", "ATENCION"],
   "ai:approve": ["ADMIN", "ATENCION", "SUPERVISOR"],
+  "ai:configure": ["ADMIN"],
   "orders:write": ["ADMIN", "VENDEDOR"],
   "orders:read": ["ADMIN", "VENDEDOR", "SUPERVISOR"],
   // Productos = catálogo de venta (nombre/precio). Todos los que venden
