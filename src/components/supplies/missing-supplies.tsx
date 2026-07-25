@@ -7,12 +7,16 @@ import { trpc } from "@/lib/trpc/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useSucursalSelection } from "@/components/layout/sucursal-context";
 
 export function MissingSupplies() {
   const [text, setText] = useState("");
   const utils = trpc.useUtils();
+  const { selectedSucursalId } = useSucursalSelection();
 
-  const { data: items, isLoading } = trpc.supplies.missingList.useQuery();
+  const { data: items, isLoading } = trpc.supplies.missingList.useQuery({
+    sucursalId: selectedSucursalId,
+  });
 
   const create = trpc.supplies.missingCreate.useMutation({
     onSuccess: async () => {
@@ -33,7 +37,7 @@ export function MissingSupplies() {
     event.preventDefault();
     const value = text.trim();
     if (!value) return;
-    create.mutate({ text: value });
+    create.mutate({ text: value, sucursalId: selectedSucursalId });
   }
 
   return (
@@ -47,12 +51,21 @@ export function MissingSupplies() {
             placeholder="Ej: bolsas de muzzarella, cajas para empanadas…"
             value={text}
             onChange={(event) => setText(event.target.value)}
-            disabled={create.isPending}
+            disabled={create.isPending || !selectedSucursalId}
           />
-          <Button type="submit" size="icon" disabled={create.isPending || !text.trim()}>
+          <Button
+            type="submit"
+            size="icon"
+            disabled={create.isPending || !text.trim() || !selectedSucursalId}
+          >
             <Plus />
           </Button>
         </form>
+        {!selectedSucursalId && (
+          <p className="text-xs text-muted-foreground">
+            Elegí una sucursal arriba para poder anotar un faltante.
+          </p>
+        )}
 
         {isLoading && <p className="text-sm text-muted-foreground">Cargando…</p>}
         {!isLoading && items?.length === 0 && (
@@ -65,7 +78,12 @@ export function MissingSupplies() {
                 key={item.id}
                 className="flex items-center justify-between gap-2 rounded-lg border px-3 py-2 text-sm"
               >
-                <span>{item.text}</span>
+                <span>
+                  {item.text}
+                  {!selectedSucursalId && (
+                    <span className="text-muted-foreground"> · {item.sucursal.name}</span>
+                  )}
+                </span>
                 <Button
                   type="button"
                   size="sm"

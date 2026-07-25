@@ -2,6 +2,7 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { orderInputSchema, orderStatusUpdateSchema } from "@/lib/validation/order";
 import { requirePermission, router } from "@/server/trpc/trpc";
+import { resolveSucursalFilter, resolveSucursalForWrite } from "@/server/trpc/sucursal";
 import { sendWhatsappTextMessage } from "@/server/integrations/whatsapp/client";
 import { createOrder } from "@/server/orders/create-order";
 
@@ -19,18 +20,25 @@ export const ordersRouter = router({
   // (quedan afuera de la vista, no se borran de la base) — el detalle sigue
   // accesible por link directo, y lo entregado pasa a contar en el
   // Dashboard/Reportes en vez de seguir ocupando la vista de "en curso".
-  list: requirePermission("orders:read").query(async ({ ctx }) => {
-    const orders = await ctx.prisma.order.findMany({
-      where: { status: { notIn: ["CANCELADO", "ENTREGADO"] } },
-      orderBy: { createdAt: "desc" },
-      include: {
-        customer: true,
-        _count: { select: { items: true } },
-        payments: { select: { status: true } },
-      },
-    });
-    return orders.map(toNumber);
-  }),
+  list: requirePermission("orders:read")
+    .input(z.object({ sucursalId: z.string().optional() }).optional())
+    .query(async ({ ctx, input }) => {
+      const sucursalId = resolveSucursalFilter(ctx.user, input?.sucursalId);
+      const orders = await ctx.prisma.order.findMany({
+        where: {
+          status: { notIn: ["CANCELADO", "ENTREGADO"] },
+          ...(sucursalId ? { sucursalId } : {}),
+        },
+        orderBy: { createdAt: "desc" },
+        include: {
+          customer: true,
+          sucursal: true,
+          _count: { select: { items: true } },
+          payments: { select: { status: true } },
+        },
+      });
+      return orders.map(toNumber);
+    }),
 
   getById: requirePermission("orders:read")
     .input(z.object({ id: z.string() }))
@@ -39,12 +47,16 @@ export const ordersRouter = router({
         where: { id: input.id },
         include: {
           customer: true,
+          sucursal: true,
           items: { include: { product: true, promotion: true } },
           invoice: true,
           payments: true,
         },
       });
       if (!order) throw new TRPCError({ code: "NOT_FOUND" });
+      if (ctx.user.sucursalId && order.sucursalId !== ctx.user.sucursalId) {
+        throw new TRPCError({ code: "NOT_FOUND" });
+      }
 
       return {
         ...toNumber(order),
@@ -55,7 +67,8 @@ export const ordersRouter = router({
   create: requirePermission("orders:write")
     .input(orderInputSchema)
     .mutation(async ({ ctx, input }) => {
-      const order = await createOrder({ ...input, employeeId: ctx.user.id });
+      const sucursalId = resolveSucursalForWrite(ctx.user, input.sucursalId);
+      const order = await createOrder({ ...input, sucursalId, employeeId: ctx.user.id });
       return toNumber(order);
     }),
 
@@ -100,7 +113,7 @@ export const ordersRouter = router({
 
       let whatsappMessageId: string;
       try {
-        whatsappMessageId = await sendWhatsappTextMessage(order.customer.whatsapp, content);
+        whatsappMessageId = await sendWhatsappTextMessage(order.customer.whatsapp, content, order.sucursalId);
       } catch (error) {
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
@@ -109,12 +122,12 @@ export const ordersRouter = router({
       }
 
       let conversation = await ctx.prisma.conversation.findFirst({
-        where: { customerId: order.customerId, status: { not: "CERRADA" } },
+        where: { customerId: order.customerId, sucursalId: order.sucursalId, status: { not: "CERRADA" } },
         orderBy: { lastMessageAt: "desc" },
       });
       if (!conversation) {
         conversation = await ctx.prisma.conversation.create({
-          data: { customerId: order.customerId, status: "ABIERTA", aiActive: true },
+          data: { customerId: order.customerId, sucursalId: order.sucursalId, status: "ABIERTA", aiActive: true },
         });
       }
 

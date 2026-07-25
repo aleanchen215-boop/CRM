@@ -67,6 +67,10 @@ export const orderInputSchema = z.object({
   notes: z.string().trim().max(500).optional(),
   // Solo tiene sentido cuando channel = DELIVERY.
   shippingAddress: z.string().trim().optional(),
+  // Solo hace falta si quien crea el pedido no está atado a una sucursal fija
+  // (ej. Admin) — se resuelve del lado del servidor a partir del usuario
+  // cuando este está atado a una.
+  sucursalId: z.string().optional(),
 });
 
 export const orderStatusUpdateSchema = z.object({

@@ -17,6 +17,7 @@ import {
 import { SupplyLevelBadge } from "@/components/supplies/supply-level-badge";
 import { NewSupplyDialog } from "@/components/supplies/new-supply-dialog";
 import { MissingSupplies } from "@/components/supplies/missing-supplies";
+import { useSucursalSelection } from "@/components/layout/sucursal-context";
 
 // Empanadas primero (son el grueso del catálogo y las que más rotan), el
 // resto (prepizzas, insumos sueltos como bolsas de muzzarella, etc.)
@@ -29,7 +30,11 @@ function isEmpanadaSupply(supply: { productUsages: { product: { category: { name
 
 export default function StockPage() {
   const [search, setSearch] = useState("");
-  const { data: supplies, isLoading } = trpc.supplies.list.useQuery({ search });
+  const { selectedSucursalId } = useSucursalSelection();
+  const { data: supplies, isLoading } = trpc.supplies.list.useQuery({
+    search,
+    sucursalId: selectedSucursalId,
+  });
 
   const empanadaSupplies = supplies?.filter(isEmpanadaSupply) ?? [];
   const otherSupplies = supplies?.filter((supply) => !isEmpanadaSupply(supply)) ?? [];
@@ -64,6 +69,7 @@ export default function StockPage() {
             <TableHeader>
               <TableRow>
                 <TableHead>Insumo</TableHead>
+                {!selectedSucursalId && <TableHead>Sucursal</TableHead>}
                 <TableHead>Cantidad</TableHead>
                 <TableHead>Unidad</TableHead>
                 <TableHead>Mínimo</TableHead>
@@ -73,14 +79,14 @@ export default function StockPage() {
             <TableBody>
               {isLoading && (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center text-sm text-muted-foreground">
+                  <TableCell colSpan={6} className="text-center text-sm text-muted-foreground">
                     Cargando…
                   </TableCell>
                 </TableRow>
               )}
               {!isLoading && supplies?.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center text-sm text-muted-foreground">
+                  <TableCell colSpan={6} className="text-center text-sm text-muted-foreground">
                     Todavía no hay insumos cargados.
                   </TableCell>
                 </TableRow>
@@ -92,6 +98,9 @@ export default function StockPage() {
                       {supply.name}
                     </Link>
                   </TableCell>
+                  {!selectedSucursalId && (
+                    <TableCell className="text-muted-foreground">{supply.sucursal.name}</TableCell>
+                  )}
                   <TableCell className="text-muted-foreground">{supply.quantity}</TableCell>
                   <TableCell className="text-muted-foreground">{supply.unit ?? "—"}</TableCell>
                   <TableCell className="text-muted-foreground">{supply.stockMinimo}</TableCell>
@@ -102,7 +111,7 @@ export default function StockPage() {
               ))}
               {empanadaSupplies.length > 0 && otherSupplies.length > 0 && (
                 <TableRow className="hover:bg-transparent">
-                  <TableCell colSpan={5} className="bg-muted/40 py-1.5 text-xs font-medium text-muted-foreground">
+                  <TableCell colSpan={6} className="bg-muted/40 py-1.5 text-xs font-medium text-muted-foreground">
                     Otros insumos
                   </TableCell>
                 </TableRow>
@@ -114,6 +123,9 @@ export default function StockPage() {
                       {supply.name}
                     </Link>
                   </TableCell>
+                  {!selectedSucursalId && (
+                    <TableCell className="text-muted-foreground">{supply.sucursal.name}</TableCell>
+                  )}
                   <TableCell className="text-muted-foreground">{supply.quantity}</TableCell>
                   <TableCell className="text-muted-foreground">{supply.unit ?? "—"}</TableCell>
                   <TableCell className="text-muted-foreground">{supply.stockMinimo}</TableCell>

@@ -14,4 +14,7 @@ export type OrderFormValues = {
   items: OrderRowValue[];
   notes: string;
   shippingAddress: string;
+  // Solo se completa (y se muestra en el form) cuando quien crea el pedido
+  // no está atado a una sola sucursal.
+  sucursalId: string;
 };

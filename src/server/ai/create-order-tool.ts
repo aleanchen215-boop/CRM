@@ -293,16 +293,18 @@ async function resolveItemsForOrder(
 
 export async function handleCreateOrder(
   customerId: string,
+  sucursalId: string,
   args: CreateOrderArgs,
 ): Promise<string> {
   // Evita duplicar pedidos: si ya hay uno PENDIENTE o CONFIRMADO de este
-  // cliente (ej. el cliente pide agregar algo después de confirmar), no se
-  // crea uno nuevo — hay que sumarlo al que ya existe con modificar_pedido
-  // en su lugar. Sin esta guarda el modelo a veces llamaba crear_pedido de
-  // nuevo en vez de modificar_pedido, dejando dos pedidos sueltos para el
-  // mismo cliente.
+  // cliente en ESTA sucursal (ej. el cliente pide agregar algo después de
+  // confirmar), no se crea uno nuevo — hay que sumarlo al que ya existe con
+  // modificar_pedido en su lugar. Sin esta guarda el modelo a veces llamaba
+  // crear_pedido de nuevo en vez de modificar_pedido, dejando dos pedidos
+  // sueltos para el mismo cliente. Se filtra por sucursal porque un mismo
+  // cliente puede tener un pedido en curso en cada sucursal a la vez.
   const existingPending = await prisma.order.findFirst({
-    where: { customerId, status: { in: ["PENDIENTE", "CONFIRMADO"] } },
+    where: { customerId, sucursalId, status: { in: ["PENDIENTE", "CONFIRMADO"] } },
     orderBy: { createdAt: "desc" },
   });
   if (existingPending && isSameBusinessDay(existingPending.createdAt, new Date())) {
@@ -322,6 +324,7 @@ export async function handleCreateOrder(
 
   const order = await createOrder({
     customerId,
+    sucursalId,
     method: metodoPago,
     channel: args.canal,
     changeFor: metodoPago === "EFECTIVO" ? args.pagaCon : undefined,
@@ -465,9 +468,13 @@ interface ModifyOrderArgs {
   observaciones?: string;
 }
 
-export async function handleModifyOrder(customerId: string, args: ModifyOrderArgs): Promise<string> {
+export async function handleModifyOrder(
+  customerId: string,
+  sucursalId: string,
+  args: ModifyOrderArgs,
+): Promise<string> {
   const order = await prisma.order.findFirst({
-    where: { customerId, status: { in: ["PENDIENTE", "CONFIRMADO"] } },
+    where: { customerId, sucursalId, status: { in: ["PENDIENTE", "CONFIRMADO"] } },
     orderBy: { createdAt: "desc" },
   });
   if (!order || !isSameBusinessDay(order.createdAt, new Date())) {
@@ -637,9 +644,9 @@ export const CANCEL_ORDER_TOOL: ChatCompletionTool = {
   },
 };
 
-export async function handleCancelOrder(customerId: string): Promise<string> {
+export async function handleCancelOrder(customerId: string, sucursalId: string): Promise<string> {
   const order = await prisma.order.findFirst({
-    where: { customerId, status: { in: ["PENDIENTE", "CONFIRMADO"] } },
+    where: { customerId, sucursalId, status: { in: ["PENDIENTE", "CONFIRMADO"] } },
     orderBy: { createdAt: "desc" },
   });
   if (!order || !isSameBusinessDay(order.createdAt, new Date())) {

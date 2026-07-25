@@ -29,8 +29,10 @@ import { UserMenu } from "@/components/layout/user-menu";
 import type { UserRole } from "@/generated/prisma/enums";
 
 // Cajero y Productor son roles acotados a un par de pantallas puntuales
-// (creados a pedido: cajero = conversaciones + ventas, productor = stock);
-// el resto de los roles ve el set "de negocio" completo.
+// (creados a pedido: cajero = conversaciones + ventas, productor = stock de
+// ambas sucursales); Vendedor Paracao/Almafuerte son igual de acotados pero
+// además solo ven su propia sucursal (se filtra del lado del servidor según
+// User.sucursalId). El resto de los roles ve el set "de negocio" completo.
 const NAV_ITEMS = [
   {
     href: "/",
@@ -48,13 +50,13 @@ const NAV_ITEMS = [
     href: "/conversaciones",
     label: "Conversaciones",
     icon: MessageCircle,
-    roles: ["ADMIN", "VENDEDOR", "ATENCION", "SUPERVISOR", "CAJERO"],
+    roles: ["ADMIN", "VENDEDOR", "ATENCION", "SUPERVISOR", "CAJERO", "VENDEDOR_PARACAO", "VENDEDOR_ALMAFUERTE"],
   },
   {
     href: "/ventas",
     label: "Ventas",
     icon: ShoppingCart,
-    roles: ["ADMIN", "VENDEDOR", "SUPERVISOR", "CAJERO"],
+    roles: ["ADMIN", "VENDEDOR", "SUPERVISOR", "CAJERO", "VENDEDOR_PARACAO", "VENDEDOR_ALMAFUERTE"],
   },
   {
     href: "/productos",
@@ -66,7 +68,7 @@ const NAV_ITEMS = [
     href: "/stock",
     label: "Stock",
     icon: Boxes,
-    roles: ["ADMIN", "DEPOSITO", "SUPERVISOR", "PRODUCTOR"],
+    roles: ["ADMIN", "DEPOSITO", "SUPERVISOR", "PRODUCTOR", "VENDEDOR_PARACAO", "VENDEDOR_ALMAFUERTE"],
   },
   {
     href: "/ia",

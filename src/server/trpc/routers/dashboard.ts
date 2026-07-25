@@ -1,4 +1,6 @@
+import { z } from "zod";
 import { protectedProcedure, router } from "@/server/trpc/trpc";
+import { resolveSucursalFilter } from "@/server/trpc/sucursal";
 
 // Mismo criterio de "día de negocio" que usa la IA para separar pedidos por
 // fecha (ver BUSINESS_TIMEZONE en create-order-tool.ts): Argentina no tiene
@@ -35,7 +37,10 @@ export const dashboardRouter = router({
   // Cualquier usuario logueado puede ver el resumen — no depende de un
   // permiso puntual (Cajero/Productor no tienen este nav item igual, se
   // filtra en el sidebar).
-  summary: protectedProcedure.query(async ({ ctx }) => {
+  summary: protectedProcedure
+    .input(z.object({ sucursalId: z.string().optional() }).optional())
+    .query(async ({ ctx, input }) => {
+    const sucursalId = resolveSucursalFilter(ctx.user, input?.sucursalId);
     const now = new Date();
     const today = dayFormatter.format(now);
     const thisMonth = monthFormatter.format(now);
@@ -43,7 +48,7 @@ export const dashboardRouter = router({
     const [entregados, activeOrdersCount, recentCustomers, openConversations, supplies] =
       await Promise.all([
         ctx.prisma.order.findMany({
-          where: { status: "ENTREGADO" },
+          where: { status: "ENTREGADO", ...(sucursalId ? { sucursalId } : {}) },
           select: {
             id: true,
             total: true,
@@ -61,17 +66,26 @@ export const dashboardRouter = router({
           },
         }),
         ctx.prisma.order.count({
-          where: { status: { in: ["PENDIENTE", "CONFIRMADO", "ENVIADO"] } },
+          where: {
+            status: { in: ["PENDIENTE", "CONFIRMADO", "ENVIADO"] },
+            ...(sucursalId ? { sucursalId } : {}),
+          },
         }),
         // Rango amplio (48hs) para no perder clientes creados a la noche por
         // el corte UTC de Prisma; el conteo final igual filtra por fecha en
-        // la zona del negocio con isToday().
+        // la zona del negocio con isToday(). Clientes no son de una sucursal
+        // en particular (se comparten entre las dos), así que no se filtran.
         ctx.prisma.customer.findMany({
           where: { createdAt: { gte: new Date(now.getTime() - 48 * 60 * 60 * 1000) } },
           select: { createdAt: true },
         }),
-        ctx.prisma.conversation.count({ where: { status: { not: "CERRADA" } } }),
-        ctx.prisma.supply.findMany({ select: { quantity: true, stockMinimo: true } }),
+        ctx.prisma.conversation.count({
+          where: { status: { not: "CERRADA" }, ...(sucursalId ? { sucursalId } : {}) },
+        }),
+        ctx.prisma.supply.findMany({
+          where: sucursalId ? { sucursalId } : {},
+          select: { quantity: true, stockMinimo: true },
+        }),
       ]);
 
     const entregadosHoy = entregados.filter((order) => isToday(order.createdAt, today));

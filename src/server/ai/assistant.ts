@@ -241,6 +241,7 @@ export type ChatTurn = { role: "user" | "assistant"; content: string };
 export async function generateAiReply(
   history: ChatTurn[],
   customerId: string,
+  sucursalId: string,
 ): Promise<{ text: string; costTokens: number }> {
   const systemPrompt = await getActiveSystemPrompt();
 
@@ -300,12 +301,12 @@ export async function generateAiReply(
           output = JSON.stringify(await listPromotions());
         } else if (call.function.name === "crear_pedido") {
           const args = JSON.parse(call.function.arguments);
-          output = await handleCreateOrder(customerId, args);
+          output = await handleCreateOrder(customerId, sucursalId, args);
         } else if (call.function.name === "modificar_pedido") {
           const args = JSON.parse(call.function.arguments);
-          output = await handleModifyOrder(customerId, args);
+          output = await handleModifyOrder(customerId, sucursalId, args);
         } else if (call.function.name === "cancelar_pedido") {
-          output = await handleCancelOrder(customerId);
+          output = await handleCancelOrder(customerId, sucursalId);
         }
       } catch (error) {
         output = error instanceof Error ? error.message : "[]";

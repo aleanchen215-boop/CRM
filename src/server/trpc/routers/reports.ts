@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { requirePermission, router } from "@/server/trpc/trpc";
+import { resolveSucursalFilter } from "@/server/trpc/sucursal";
 
 const BUSINESS_TIMEZONE = "America/Argentina/Buenos_Aires";
 const dayFormatter = new Intl.DateTimeFormat("en-CA", {
@@ -30,17 +31,20 @@ export const reportsRouter = router({
       z.object({
         from: z.coerce.date(),
         to: z.coerce.date(),
+        sucursalId: z.string().optional(),
       }),
     )
     .query(async ({ ctx, input }) => {
       // El "to" se interpreta inclusive hasta el final de ese día.
       const toEndOfDay = new Date(input.to);
       toEndOfDay.setHours(23, 59, 59, 999);
+      const sucursalId = resolveSucursalFilter(ctx.user, input.sucursalId);
 
       const orders = await ctx.prisma.order.findMany({
         where: {
           status: "ENTREGADO",
           createdAt: { gte: input.from, lte: toEndOfDay },
+          ...(sucursalId ? { sucursalId } : {}),
         },
         select: { total: true, method: true, channel: true, createdAt: true },
         orderBy: { createdAt: "asc" },

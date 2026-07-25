@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { OrderStatusBadge } from "@/components/orders/order-status-badge";
 import { PaymentStatusBadge } from "@/components/orders/payment-status-badge";
 import { NewOrderDialog } from "@/components/orders/new-order-dialog";
+import { useSucursalSelection } from "@/components/layout/sucursal-context";
 
 const CHANNEL_LABELS: Record<(typeof salesChannelValues)[number], string> = {
   MOSTRADOR: "Mostrador",
@@ -17,7 +18,8 @@ const CHANNEL_LABELS: Record<(typeof salesChannelValues)[number], string> = {
 };
 
 export default function VentasPage() {
-  const { data: orders, isLoading } = trpc.orders.list.useQuery();
+  const { selectedSucursalId } = useSucursalSelection();
+  const { data: orders, isLoading } = trpc.orders.list.useQuery({ sucursalId: selectedSucursalId });
 
   return (
     <div className="flex flex-col gap-6">
@@ -68,6 +70,7 @@ export default function VentasPage() {
                       <span>
                         {order._count.items} producto{order._count.items === 1 ? "" : "s"}
                         {order.channelSource ? ` · ${order.channelSource}` : ""}
+                        {!selectedSucursalId ? ` · ${order.sucursal.name}` : ""}
                       </span>
                       <span>{formatCurrency(order.total)}</span>
                     </div>

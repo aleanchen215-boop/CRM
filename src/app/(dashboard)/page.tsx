@@ -12,9 +12,11 @@ import {
 import { trpc } from "@/lib/trpc/client";
 import { formatCurrency } from "@/lib/format";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useSucursalSelection } from "@/components/layout/sucursal-context";
 
 export default function DashboardPage() {
-  const { data, isLoading } = trpc.dashboard.summary.useQuery();
+  const { selectedSucursalId } = useSucursalSelection();
+  const { data, isLoading } = trpc.dashboard.summary.useQuery({ sucursalId: selectedSucursalId });
 
   const metrics = [
     {

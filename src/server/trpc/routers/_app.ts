@@ -9,6 +9,8 @@ import { conversationsRouter } from "@/server/trpc/routers/conversations";
 import { aiRouter } from "@/server/trpc/routers/ai";
 import { dashboardRouter } from "@/server/trpc/routers/dashboard";
 import { reportsRouter } from "@/server/trpc/routers/reports";
+import { usersRouter } from "@/server/trpc/routers/users";
+import { sucursalesRouter } from "@/server/trpc/routers/sucursales";
 
 // Routers de dominio restantes (automations, reports, users) se suman acá
 // a medida que se implementan en las siguientes fases.
@@ -23,6 +25,8 @@ export const appRouter = router({
   ai: aiRouter,
   dashboard: dashboardRouter,
   reports: reportsRouter,
+  users: usersRouter,
+  sucursales: sucursalesRouter,
 });
 
 export type AppRouter = typeof appRouter;

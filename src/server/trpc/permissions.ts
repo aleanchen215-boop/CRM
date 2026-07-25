@@ -4,26 +4,27 @@ import type { UserRole } from "@/generated/prisma/enums";
 // Un solo lugar de verdad: agregar una acción acá la habilita en todos los
 // procedures que la referencien, sin tocar cada router.
 export const PERMISSIONS = {
-  "customers:read": ["ADMIN", "VENDEDOR", "ATENCION", "SUPERVISOR", "CAJERO"],
+  "customers:read": ["ADMIN", "VENDEDOR", "ATENCION", "SUPERVISOR", "CAJERO", "VENDEDOR_PARACAO", "VENDEDOR_ALMAFUERTE"],
   "customers:write": ["ADMIN", "VENDEDOR", "CAJERO"],
-  "conversations:read": ["ADMIN", "VENDEDOR", "ATENCION", "SUPERVISOR", "CAJERO"],
-  "conversations:write": ["ADMIN", "VENDEDOR", "ATENCION", "CAJERO"],
+  "conversations:read": ["ADMIN", "VENDEDOR", "ATENCION", "SUPERVISOR", "CAJERO", "VENDEDOR_PARACAO", "VENDEDOR_ALMAFUERTE"],
+  "conversations:write": ["ADMIN", "VENDEDOR", "ATENCION", "CAJERO", "VENDEDOR_PARACAO", "VENDEDOR_ALMAFUERTE"],
   "ai:approve": ["ADMIN", "ATENCION", "SUPERVISOR"],
   "ai:configure": ["ADMIN"],
-  "orders:write": ["ADMIN", "VENDEDOR", "CAJERO"],
-  "orders:read": ["ADMIN", "VENDEDOR", "SUPERVISOR", "CAJERO"],
+  "orders:write": ["ADMIN", "VENDEDOR", "CAJERO", "VENDEDOR_PARACAO", "VENDEDOR_ALMAFUERTE"],
+  "orders:read": ["ADMIN", "VENDEDOR", "SUPERVISOR", "CAJERO", "VENDEDOR_PARACAO", "VENDEDOR_ALMAFUERTE"],
   // Cancelar una venta ya hecha es más sensible que actualizar su estado
-  // normal (afecta caja/reportes) — solo Admin (Cajero puede crear, no
-  // borrar/cancelar).
+  // normal (afecta caja/reportes) — solo Admin (Cajero/Vendedor de sucursal
+  // pueden crear, no borrar/cancelar).
   "orders:cancel": ["ADMIN"],
   // Productos = catálogo de venta (nombre/precio). Todos los que venden
   // necesitan verlo; solo Admin lo edita (cambios de precio son sensibles).
-  "products:read": ["ADMIN", "VENDEDOR", "DEPOSITO", "SUPERVISOR", "CAJERO"],
+  "products:read": ["ADMIN", "VENDEDOR", "DEPOSITO", "SUPERVISOR", "CAJERO", "VENDEDOR_PARACAO", "VENDEDOR_ALMAFUERTE"],
   "products:write": ["ADMIN"],
   // Stock = insumos/ingredientes (cantidad). Productor entra solo a ver
-  // esto (stock y faltantes), nada más.
+  // esto (stock y faltantes) de las dos sucursales; el vendedor de cada
+  // sucursal solo ve la suya (queda resuelto por su User.sucursalId, no acá).
   "stock:write": ["ADMIN", "DEPOSITO"],
-  "stock:read": ["ADMIN", "DEPOSITO", "SUPERVISOR", "PRODUCTOR"],
+  "stock:read": ["ADMIN", "DEPOSITO", "SUPERVISOR", "PRODUCTOR", "VENDEDOR_PARACAO", "VENDEDOR_ALMAFUERTE"],
   "automations:write": ["ADMIN"],
   "reports:read": ["ADMIN", "VENDEDOR", "DEPOSITO", "SUPERVISOR"],
   "users:manage": ["ADMIN"],

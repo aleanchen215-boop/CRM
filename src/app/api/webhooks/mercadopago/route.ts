@@ -70,14 +70,16 @@ export async function POST(request: Request) {
 
   if (status === "APROBADO") {
     const conversation = await prisma.conversation.findFirst({
-      where: { customerId: order.customerId, status: { not: "CERRADA" } },
+      where: { customerId: order.customerId, sucursalId: order.sucursalId, status: { not: "CERRADA" } },
       orderBy: { lastMessageAt: "desc" },
     });
 
     const content = "¡Recibimos tu pago! Ya estamos preparando tu pedido 🎉";
-    const whatsappMessageId = await sendWhatsappTextMessage(order.customer.whatsapp, content).catch(
-      () => undefined,
-    );
+    const whatsappMessageId = await sendWhatsappTextMessage(
+      order.customer.whatsapp,
+      content,
+      order.sucursalId,
+    ).catch(() => undefined);
 
     if (conversation) {
       await prisma.message.create({

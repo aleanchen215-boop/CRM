@@ -174,6 +174,7 @@ async function resolveOrderItem(
 // de haber sido descontado (devuelve al stock).
 async function applySupplyDeductions(
   tx: Prisma.TransactionClient,
+  sucursalId: string,
   deductions: SupplyDeduction[],
   mode: "SALIDA" | "ENTRADA" = "SALIDA",
 ) {
@@ -184,8 +185,13 @@ async function applySupplyDeductions(
     totalsByProduct.set(deduction.productId, (totalsByProduct.get(deduction.productId) ?? 0) + deduction.quantity);
   }
 
+  // El insumo es propio de cada sucursal — la receta se busca entre las
+  // ProductSupplyUsage cuyo Supply pertenece a esta sucursal puntual.
   const usages = await tx.productSupplyUsage.findMany({
-    where: { productId: { in: [...totalsByProduct.keys()] } },
+    where: {
+      productId: { in: [...totalsByProduct.keys()] },
+      supply: { sucursalId },
+    },
   });
 
   const totalsBySupply = new Map<string, number>();
@@ -206,7 +212,8 @@ async function applySupplyDeductions(
   }
 }
 
-export type CreateOrderInput = OrderInput & {
+export type CreateOrderInput = Omit<OrderInput, "sucursalId"> & {
+  sucursalId: string;
   employeeId?: string;
   changeFor?: number;
   // Solo tiene sentido cuando channel = DELIVERY.
@@ -235,6 +242,7 @@ export async function createOrder(input: CreateOrderInput) {
     const order = await tx.order.create({
       data: {
         customerId: input.customerId,
+        sucursalId: input.sucursalId,
         method: input.method,
         channel: input.channel,
         channelSource: input.channel === "APPS" ? input.channelSource : undefined,
@@ -250,7 +258,7 @@ export async function createOrder(input: CreateOrderInput) {
       },
     });
 
-    await applySupplyDeductions(tx, deductions);
+    await applySupplyDeductions(tx, input.sucursalId, deductions);
 
     return order;
   });
@@ -284,7 +292,7 @@ export async function addItemsToOrder(orderId: string, items: OrderInput["items"
       data: { total: Number(order.total) + addedTotal },
     });
 
-    await applySupplyDeductions(tx, deductions);
+    await applySupplyDeductions(tx, order.sucursalId, deductions);
 
     return updated;
   });
@@ -340,7 +348,7 @@ export async function removeItemsFromOrder(
       data: { total: Number(order.total) - removedTotal },
     });
 
-    await applySupplyDeductions(tx, restored, "ENTRADA");
+    await applySupplyDeductions(tx, order.sucursalId, restored, "ENTRADA");
 
     return updated;
   });

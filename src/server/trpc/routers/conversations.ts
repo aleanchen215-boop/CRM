@@ -3,27 +3,36 @@ import { z } from "zod";
 import { sendMessageInputSchema } from "@/lib/validation/conversation";
 import { sendWhatsappTextMessage } from "@/server/integrations/whatsapp/client";
 import { requirePermission, router } from "@/server/trpc/trpc";
+import { resolveSucursalFilter } from "@/server/trpc/sucursal";
 
 export const conversationsRouter = router({
   // Las cerradas no aparecen en el inbox (no se borran de la base, solo se
   // ocultan de esta vista) — el historial sigue accesible por link directo
-  // si hace falta consultarlo.
-  list: requirePermission("conversations:read").query(async ({ ctx }) => {
-    return ctx.prisma.conversation.findMany({
-      where: { status: { not: "CERRADA" } },
-      orderBy: { lastMessageAt: "desc" },
-      include: { customer: true, _count: { select: { messages: true } } },
-    });
-  }),
+  // si hace falta consultarlo. Se filtra por sucursal: un usuario atado a
+  // una (ej. VENDEDOR_ALMAFUERTE) solo ve las suyas; uno sin sucursal fija ve
+  // la que haya elegido en el selector, o todas si no eligió ninguna.
+  list: requirePermission("conversations:read")
+    .input(z.object({ sucursalId: z.string().optional() }).optional())
+    .query(async ({ ctx, input }) => {
+      const sucursalId = resolveSucursalFilter(ctx.user, input?.sucursalId);
+      return ctx.prisma.conversation.findMany({
+        where: { status: { not: "CERRADA" }, ...(sucursalId ? { sucursalId } : {}) },
+        orderBy: { lastMessageAt: "desc" },
+        include: { customer: true, sucursal: true, _count: { select: { messages: true } } },
+      });
+    }),
 
   getById: requirePermission("conversations:read")
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
       const conversation = await ctx.prisma.conversation.findUnique({
         where: { id: input.id },
-        include: { customer: true, messages: { orderBy: { createdAt: "asc" } } },
+        include: { customer: true, sucursal: true, messages: { orderBy: { createdAt: "asc" } } },
       });
       if (!conversation) throw new TRPCError({ code: "NOT_FOUND" });
+      if (ctx.user.sucursalId && conversation.sucursalId !== ctx.user.sucursalId) {
+        throw new TRPCError({ code: "NOT_FOUND" });
+      }
       return conversation;
     }),
 
@@ -38,7 +47,11 @@ export const conversationsRouter = router({
 
       let whatsappMessageId: string;
       try {
-        whatsappMessageId = await sendWhatsappTextMessage(conversation.customer.whatsapp, input.content);
+        whatsappMessageId = await sendWhatsappTextMessage(
+          conversation.customer.whatsapp,
+          input.content,
+          conversation.sucursalId,
+        );
       } catch (error) {
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",

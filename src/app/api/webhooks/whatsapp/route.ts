@@ -5,7 +5,12 @@ import { sendWhatsappTextMessage } from "@/server/integrations/whatsapp/client";
 import { generateAiReply, type ChatTurn } from "@/server/ai/assistant";
 import type { YCloudInboundMessageEvent } from "@/server/integrations/whatsapp/types";
 
-async function respondWithAi(conversationId: string, customerId: string, customerWhatsapp: string) {
+async function respondWithAi(
+  conversationId: string,
+  customerId: string,
+  customerWhatsapp: string,
+  sucursalId: string,
+) {
   const recentMessages = await prisma.message.findMany({
     // Solo cliente/IA: si un empleado tomó la conversación manualmente, esas
     // respuestas no deben aparecer como si la IA misma las hubiera dicho —
@@ -24,8 +29,8 @@ async function respondWithAi(conversationId: string, customerId: string, custome
     }));
 
   try {
-    const { text, costTokens } = await generateAiReply(history, customerId);
-    const whatsappMessageId = await sendWhatsappTextMessage(customerWhatsapp, text);
+    const { text, costTokens } = await generateAiReply(history, customerId, sucursalId);
+    const whatsappMessageId = await sendWhatsappTextMessage(customerWhatsapp, text, sucursalId);
 
     const message = await prisma.message.create({
       data: {
@@ -70,6 +75,13 @@ export async function POST(request: Request) {
 
     // Fase 1: solo texto. Imagen/audio/ubicación se suman más adelante.
     if (inbound.type === "text" && inbound.text) {
+      // Qué sucursal recibió el mensaje según el número al que escribió el
+      // cliente (inbound.to) — así cuando se conecte el WhatsApp de otra
+      // sucursal alcanza con cargar su número, sin tocar código acá.
+      const sucursal =
+        (await prisma.sucursal.findUnique({ where: { whatsappNumber: inbound.to } })) ??
+        (await prisma.sucursal.findUniqueOrThrow({ where: { slug: "paracao" } }));
+
       const customer = await prisma.customer.upsert({
         where: { whatsapp: inbound.from },
         create: {
@@ -82,13 +94,13 @@ export async function POST(request: Request) {
       });
 
       let conversation = await prisma.conversation.findFirst({
-        where: { customerId: customer.id, status: { not: "CERRADA" } },
+        where: { customerId: customer.id, sucursalId: sucursal.id, status: { not: "CERRADA" } },
         orderBy: { lastMessageAt: "desc" },
       });
 
       if (!conversation) {
         conversation = await prisma.conversation.create({
-          data: { customerId: customer.id, status: "ABIERTA", aiActive: true },
+          data: { customerId: customer.id, sucursalId: sucursal.id, status: "ABIERTA", aiActive: true },
         });
       }
 
@@ -111,7 +123,7 @@ export async function POST(request: Request) {
       // no arriesgar un timeout del webhook mientras OpenAI/WhatsApp responden.
       if (conversation.aiActive) {
         const conversationId = conversation.id;
-        after(() => respondWithAi(conversationId, customer.id, inbound.from));
+        after(() => respondWithAi(conversationId, customer.id, inbound.from, sucursal.id));
       }
     }
   }

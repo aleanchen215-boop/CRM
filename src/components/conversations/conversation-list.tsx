@@ -4,6 +4,7 @@ import { Bot } from "lucide-react";
 import { trpc } from "@/lib/trpc/client";
 import { cn } from "@/lib/utils";
 import { ConversationStatusBadge } from "@/components/conversations/conversation-status-badge";
+import { useSucursalSelection } from "@/components/layout/sucursal-context";
 
 export function ConversationList({
   selectedId,
@@ -12,9 +13,11 @@ export function ConversationList({
   selectedId: string | null;
   onSelect: (id: string) => void;
 }) {
-  const { data: conversations, isLoading } = trpc.conversations.list.useQuery(undefined, {
-    refetchInterval: 5000,
-  });
+  const { selectedSucursalId } = useSucursalSelection();
+  const { data: conversations, isLoading } = trpc.conversations.list.useQuery(
+    { sucursalId: selectedSucursalId },
+    { refetchInterval: 5000 },
+  );
 
   if (isLoading) {
     return <p className="p-4 text-sm text-muted-foreground">Cargando…</p>;
@@ -51,7 +54,10 @@ export function ConversationList({
             <ConversationStatusBadge status={conversation.status} />
           </div>
           <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>{conversation.customer.whatsapp}</span>
+            <span>
+              {conversation.customer.whatsapp}
+              {!selectedSucursalId ? ` · ${conversation.sucursal.name}` : ""}
+            </span>
             <span>{conversation._count.messages} mensaje{conversation._count.messages === 1 ? "" : "s"}</span>
           </div>
         </button>

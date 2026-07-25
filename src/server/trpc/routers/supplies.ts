@@ -6,21 +6,34 @@ import {
   supplyUpdateSchema,
 } from "@/lib/validation/supply";
 import { requirePermission, router } from "@/server/trpc/trpc";
+import { resolveSucursalFilter, resolveSucursalForWrite } from "@/server/trpc/sucursal";
+
+function assertSucursalAccess(user: { sucursalId: string | null }, supplySucursalId: string) {
+  if (user.sucursalId && user.sucursalId !== supplySucursalId) {
+    throw new TRPCError({ code: "NOT_FOUND" });
+  }
+}
 
 export const suppliesRouter = router({
   // Incluye a qué categoría de producto pertenece cada insumo (vía la
   // receta en ProductSupplyUsage) para que la pantalla de Stock pueda
   // agrupar empanadas primero y el resto (prepizzas, insumos sueltos)
-  // después.
+  // después. Sin sucursal resuelta (ej. Productor, que ve ambas a la vez)
+  // trae todo junto, con la sucursal de cada renglón incluida.
   list: requirePermission("stock:read")
-    .input(z.object({ search: z.string().trim().optional() }))
+    .input(z.object({ search: z.string().trim().optional(), sucursalId: z.string().optional() }).optional())
     .query(async ({ ctx, input }) => {
+      const sucursalId = resolveSucursalFilter(ctx.user, input?.sucursalId);
       return ctx.prisma.supply.findMany({
-        where: input.search
-          ? { name: { contains: input.search, mode: "insensitive" } }
-          : {},
+        where: {
+          ...(sucursalId ? { sucursalId } : {}),
+          ...(input?.search ? { name: { contains: input.search, mode: "insensitive" } } : {}),
+        },
         orderBy: { name: "asc" },
-        include: { productUsages: { include: { product: { include: { category: true } } } } },
+        include: {
+          sucursal: true,
+          productUsages: { include: { product: { include: { category: true } } } },
+        },
       });
     }),
 
@@ -29,24 +42,33 @@ export const suppliesRouter = router({
     .query(async ({ ctx, input }) => {
       const supply = await ctx.prisma.supply.findUnique({
         where: { id: input.id },
-        include: { movements: { orderBy: { createdAt: "desc" }, take: 20 } },
+        include: { sucursal: true, movements: { orderBy: { createdAt: "desc" }, take: 20 } },
       });
       if (!supply) throw new TRPCError({ code: "NOT_FOUND" });
+      assertSucursalAccess(ctx.user, supply.sucursalId);
       return supply;
     }),
 
   create: requirePermission("stock:write")
-    .input(supplyInputSchema)
+    .input(supplyInputSchema.extend({ sucursalId: z.string().optional() }))
     .mutation(async ({ ctx, input }) => {
-      const existing = await ctx.prisma.supply.findUnique({ where: { name: input.name } });
+      const sucursalId = resolveSucursalForWrite(ctx.user, input.sucursalId);
+
+      const existing = await ctx.prisma.supply.findUnique({
+        where: { name_sucursalId: { name: input.name, sucursalId } },
+      });
       if (existing) {
-        throw new TRPCError({ code: "CONFLICT", message: "Ya existe un insumo con ese nombre." });
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: "Ya existe un insumo con ese nombre en esta sucursal.",
+        });
       }
 
       return ctx.prisma.$transaction(async (tx) => {
         const supply = await tx.supply.create({
           data: {
             name: input.name,
+            sucursalId,
             unit: input.unit,
             stockMinimo: input.stockMinimo,
             stockIdeal: input.stockIdeal,
@@ -73,6 +95,9 @@ export const suppliesRouter = router({
     .input(z.object({ id: z.string() }).merge(supplyUpdateSchema))
     .mutation(async ({ ctx, input }) => {
       const { id, ...data } = input;
+      const current = await ctx.prisma.supply.findUnique({ where: { id } });
+      if (!current) throw new TRPCError({ code: "NOT_FOUND" });
+      assertSucursalAccess(ctx.user, current.sucursalId);
       return ctx.prisma.supply.update({ where: { id }, data });
     }),
 
@@ -82,6 +107,7 @@ export const suppliesRouter = router({
       return ctx.prisma.$transaction(async (tx) => {
         const supply = await tx.supply.findUnique({ where: { id: input.supplyId } });
         if (!supply) throw new TRPCError({ code: "NOT_FOUND" });
+        assertSucursalAccess(ctx.user, supply.sucursalId);
 
         let newQuantity: number;
         let movementQuantity: number;
@@ -117,22 +143,30 @@ export const suppliesRouter = router({
   // Lista de compras rápida ("insumos faltantes"): cualquiera con acceso a
   // Stock puede anotar algo que se está por terminar, y tacharlo cuando ya
   // se compró. No pisa el modelo de Supply — es solo una nota.
-  missingList: requirePermission("stock:read").query(async ({ ctx }) => {
-    return ctx.prisma.missingSupplyItem.findMany({
-      where: { resolvedAt: null },
-      orderBy: { createdAt: "asc" },
-    });
-  }),
+  missingList: requirePermission("stock:read")
+    .input(z.object({ sucursalId: z.string().optional() }).optional())
+    .query(async ({ ctx, input }) => {
+      const sucursalId = resolveSucursalFilter(ctx.user, input?.sucursalId);
+      return ctx.prisma.missingSupplyItem.findMany({
+        where: { resolvedAt: null, ...(sucursalId ? { sucursalId } : {}) },
+        orderBy: { createdAt: "asc" },
+        include: { sucursal: true },
+      });
+    }),
 
   missingCreate: requirePermission("stock:write")
-    .input(z.object({ text: z.string().trim().min(1).max(200) }))
+    .input(z.object({ text: z.string().trim().min(1).max(200), sucursalId: z.string().optional() }))
     .mutation(async ({ ctx, input }) => {
-      return ctx.prisma.missingSupplyItem.create({ data: { text: input.text } });
+      const sucursalId = resolveSucursalForWrite(ctx.user, input.sucursalId);
+      return ctx.prisma.missingSupplyItem.create({ data: { text: input.text, sucursalId } });
     }),
 
   missingResolve: requirePermission("stock:write")
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
+      const current = await ctx.prisma.missingSupplyItem.findUnique({ where: { id: input.id } });
+      if (!current) throw new TRPCError({ code: "NOT_FOUND" });
+      assertSucursalAccess(ctx.user, current.sucursalId);
       return ctx.prisma.missingSupplyItem.update({
         where: { id: input.id },
         data: { resolvedAt: new Date() },

@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/dialog";
 import { CustomerForm } from "@/components/customers/customer-form";
 import { OrderItemRow } from "@/components/orders/order-item-row";
+import { useSucursalSelection } from "@/components/layout/sucursal-context";
 
 const METHOD_LABELS: Record<(typeof paymentMethodValues)[number], string> = {
   MERCADO_PAGO: "Mercado Pago",
@@ -120,10 +121,18 @@ export function OrderForm({
   onSuccess: (orderId: string) => void;
 }) {
   const utils = trpc.useUtils();
+  const { data: me } = trpc.system.me.useQuery();
   const { data: customers } = trpc.customers.list.useQuery({});
   const { data: products } = trpc.products.list.useQuery({});
   const { data: promotions } = trpc.promotions.list.useQuery();
+  const { data: sucursales } = trpc.sucursales.list.useQuery();
+  const { selectedSucursalId } = useSucursalSelection();
   const [newCustomerOpen, setNewCustomerOpen] = useState(false);
+
+  // Solo hace falta elegir sucursal si quien crea el pedido no está atado a
+  // una sola (el servidor la exige en ese caso) — se precarga con la que
+  // esté elegida arriba en el selector, si hay una.
+  const needsSucursalPicker = Boolean(me && !me.sucursalId);
 
   const form = useForm<OrderFormValues>({
     defaultValues: {
@@ -132,6 +141,7 @@ export function OrderForm({
       items: [emptyRow()],
       notes: "",
       shippingAddress: "",
+      sucursalId: selectedSucursalId ?? "",
     },
   });
 
@@ -170,6 +180,10 @@ export function OrderForm({
       toast.error("Elegí un cliente.");
       return;
     }
+    if (needsSucursalPicker && !values.sucursalId) {
+      toast.error("Elegí a qué sucursal pertenece esta venta.");
+      return;
+    }
     const error = validateRows(values.items);
     if (error) {
       toast.error(error);
@@ -187,6 +201,7 @@ export function OrderForm({
       items: toApiItems(values.items),
       notes: values.notes.trim() || undefined,
       shippingAddress: channel === "DELIVERY" ? values.shippingAddress.trim() : undefined,
+      sucursalId: needsSucursalPicker ? values.sucursalId : undefined,
     });
   });
 
@@ -253,6 +268,32 @@ export function OrderForm({
               )}
             />
           </Field>
+
+          {needsSucursalPicker && (
+            <Field>
+              <FieldLabel htmlFor="sucursalId">Sucursal</FieldLabel>
+              <Controller
+                control={form.control}
+                name="sucursalId"
+                render={({ field }) => (
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <SelectTrigger id="sucursalId" className="w-full">
+                      <SelectValue placeholder="Elegir sucursal…">
+                        {(id: string) => sucursales?.find((s) => s.id === id)?.name ?? id}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      {sucursales?.map((sucursal) => (
+                        <SelectItem key={sucursal.id} value={sucursal.id}>
+                          {sucursal.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+            </Field>
+          )}
 
           {channel === "DELIVERY" && (
             <Field>

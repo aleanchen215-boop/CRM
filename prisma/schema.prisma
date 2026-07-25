@@ -12,6 +12,31 @@ datasource db {
   provider = "postgresql"
 }
 
+// ---------- Sucursales ----------
+
+// Empapizza tiene dos locales físicos (Paracao y Almafuerte); casi todo lo
+// operativo (pedidos, conversaciones, stock) es propio de una sucursal, pero
+// el catálogo de productos y la config de IA son compartidos entre ambas.
+model Sucursal {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  slug      String   @unique
+  // Número de WhatsApp Business (YCloud) que recibe los mensajes de esta
+  // sucursal — el webhook lo usa para decidir a qué sucursal pertenece cada
+  // conversación entrante. Nulo hasta que esa sucursal tenga WhatsApp
+  // conectado (ej. Almafuerte, todavía pendiente).
+  whatsappNumber String? @unique
+  createdAt DateTime @default(now())
+
+  users               User[]
+  conversations       Conversation[]
+  orders              Order[]
+  supplies            Supply[]
+  missingSupplyItems  MissingSupplyItem[]
+
+  @@map("sucursales")
+}
+
 // ---------- Identidad y permisos ----------
 
 enum UserRole {
@@ -22,6 +47,11 @@ enum UserRole {
   SUPERVISOR
   CAJERO
   PRODUCTOR
+  // Vendedor acotado a una sola sucursal: crea ventas y ve conversaciones/
+  // stock solo de la suya (a diferencia de VENDEDOR, que no está atado a
+  // ninguna sucursal en particular).
+  VENDEDOR_PARACAO
+  VENDEDOR_ALMAFUERTE
 }
 
 model User {
@@ -39,6 +69,11 @@ model User {
   name      String
   role      UserRole
   active    Boolean  @default(true)
+  // Nulo = ve/opera en todas las sucursales (Admin, Productor/compras,
+  // Supervisor). Con valor = atado a esa sucursal únicamente (los roles
+  // VENDEDOR_PARACAO/VENDEDOR_ALMAFUERTE siempre lo tienen seteado).
+  sucursalId String?
+  sucursal   Sucursal? @relation(fields: [sucursalId], references: [id])
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -150,6 +185,11 @@ model Conversation {
   id                 String             @id @default(uuid())
   customerId         String
   customer           Customer           @relation(fields: [customerId], references: [id])
+  // Qué sucursal recibió estos mensajes de WhatsApp (según el número al que
+  // escribió el cliente) — un mismo cliente puede tener conversaciones en
+  // ambas si le escribió a las dos.
+  sucursalId         String
+  sucursal           Sucursal           @relation(fields: [sucursalId], references: [id])
   status             ConversationStatus @default(ABIERTA)
   aiActive           Boolean            @default(true)
   assignedEmployeeId String?
@@ -324,7 +364,9 @@ model ProductImage {
 
 model Supply {
   id          String   @id @default(uuid())
-  name        String   @unique
+  name        String
+  sucursalId  String
+  sucursal    Sucursal @relation(fields: [sucursalId], references: [id])
   unit        String?
   quantity    Int      @default(0)
   stockMinimo Int      @default(0)
@@ -335,6 +377,7 @@ model Supply {
   movements     SupplyMovement[]
   productUsages ProductSupplyUsage[]
 
+  @@unique([name, sucursalId])
   @@map("supplies")
 }
 
@@ -345,6 +388,8 @@ model Supply {
 model MissingSupplyItem {
   id         String    @id @default(uuid())
   text       String
+  sucursalId String
+  sucursal   Sucursal  @relation(fields: [sucursalId], references: [id])
   createdAt  DateTime  @default(now())
   resolvedAt DateTime?
 
@@ -396,6 +441,8 @@ model Order {
   id              String        @id @default(uuid())
   customerId      String
   customer        Customer      @relation(fields: [customerId], references: [id])
+  sucursalId      String
+  sucursal        Sucursal      @relation(fields: [sucursalId], references: [id])
   status          OrderStatus   @default(PENDIENTE)
   method          PaymentMethod
   channel         SalesChannel  @default(MOSTRADOR)

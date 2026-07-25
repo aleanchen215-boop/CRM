@@ -6,6 +6,7 @@ import { formatCurrency } from "@/lib/format";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useSucursalSelection } from "@/components/layout/sucursal-context";
 
 function todayStr() {
   return new Date().toISOString().slice(0, 10);
@@ -19,8 +20,9 @@ function daysAgoStr(days: number) {
 export default function ReportesPage() {
   const [from, setFrom] = useState(daysAgoStr(29));
   const [to, setTo] = useState(todayStr());
+  const { selectedSucursalId } = useSucursalSelection();
 
-  const { data, isLoading } = trpc.reports.ventas.useQuery({ from, to });
+  const { data, isLoading } = trpc.reports.ventas.useQuery({ from, to, sucursalId: selectedSucursalId });
 
   return (
     <div className="flex flex-col gap-6">

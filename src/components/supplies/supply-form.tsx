@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm, type Resolver } from "react-hook-form";
 import { toast } from "sonner";
@@ -13,6 +14,14 @@ import { trpc } from "@/lib/trpc/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { useSucursalSelection } from "@/components/layout/sucursal-context";
 
 type SupplyFormProps =
   | { mode: "create"; onSuccess: (supplyId: string) => void }
@@ -25,6 +34,11 @@ type SupplyFormProps =
 
 export function SupplyForm(props: SupplyFormProps) {
   const utils = trpc.useUtils();
+  const { data: me } = trpc.system.me.useQuery();
+  const { data: sucursales } = trpc.sucursales.list.useQuery();
+  const { selectedSucursalId } = useSucursalSelection();
+  const needsSucursalPicker = props.mode === "create" && Boolean(me && !me.sucursalId);
+  const [sucursalId, setSucursalId] = useState(selectedSucursalId ?? "");
   const schema = props.mode === "create" ? supplyInputSchema : supplyUpdateSchema;
 
   const form = useForm<SupplyUpdateInput & { initialQuantity?: number }>({
@@ -62,7 +76,11 @@ export function SupplyForm(props: SupplyFormProps) {
 
   const onSubmit = form.handleSubmit((values) => {
     if (props.mode === "create") {
-      create.mutate(values as SupplyInput);
+      if (needsSucursalPicker && !sucursalId) {
+        toast.error("Elegí a qué sucursal pertenece este insumo.");
+        return;
+      }
+      create.mutate({ ...(values as SupplyInput), sucursalId: needsSucursalPicker ? sucursalId : undefined });
     } else {
       update.mutate({ id: props.supplyId, ...values });
     }
@@ -71,6 +89,26 @@ export function SupplyForm(props: SupplyFormProps) {
   return (
     <form onSubmit={onSubmit} className="flex flex-col gap-4">
       <FieldGroup className="gap-3.5">
+        {needsSucursalPicker && (
+          <Field>
+            <FieldLabel htmlFor="sucursalId">Sucursal</FieldLabel>
+            <Select value={sucursalId} onValueChange={(value) => setSucursalId(value ?? "")}>
+              <SelectTrigger id="sucursalId" className="w-full">
+                <SelectValue placeholder="Elegir sucursal…">
+                  {(id: string) => sucursales?.find((s) => s.id === id)?.name ?? id}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {sucursales?.map((sucursal) => (
+                  <SelectItem key={sucursal.id} value={sucursal.id}>
+                    {sucursal.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+        )}
+
         <div className="grid grid-cols-2 gap-3">
           <Field>
             <FieldLabel htmlFor="name">Nombre</FieldLabel>

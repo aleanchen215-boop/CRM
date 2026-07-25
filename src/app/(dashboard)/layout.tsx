@@ -4,6 +4,8 @@ import { createClient } from "@/lib/supabase/server";
 import { AppSidebar } from "@/components/layout/app-sidebar";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { Separator } from "@/components/ui/separator";
+import { SucursalProvider } from "@/components/layout/sucursal-context";
+import { SucursalSwitcher } from "@/components/layout/sucursal-switcher";
 
 export default async function DashboardLayout({
   children,
@@ -28,16 +30,21 @@ export default async function DashboardLayout({
   }
 
   return (
-    <SidebarProvider>
-      <AppSidebar user={{ name: user.name, email: user.email, role: user.role }} />
-      <SidebarInset>
-        <header className="flex h-14 shrink-0 items-center gap-2 border-b px-4 print:hidden">
-          <SidebarTrigger className="-ml-1" />
-          <Separator orientation="vertical" className="mr-2 h-4" />
-          <span className="text-sm text-muted-foreground">CRM Paracao</span>
-        </header>
-        <main className="flex-1 p-6">{children}</main>
-      </SidebarInset>
-    </SidebarProvider>
+    <SucursalProvider>
+      <SidebarProvider>
+        <AppSidebar user={{ name: user.name, email: user.email, role: user.role }} />
+        <SidebarInset>
+          <header className="flex h-14 shrink-0 items-center gap-2 border-b px-4 print:hidden">
+            <SidebarTrigger className="-ml-1" />
+            <Separator orientation="vertical" className="mr-2 h-4" />
+            <span className="text-sm text-muted-foreground">CRM Paracao</span>
+            <div className="ml-auto">
+              <SucursalSwitcher />
+            </div>
+          </header>
+          <main className="flex-1 p-6">{children}</main>
+        </SidebarInset>
+      </SidebarProvider>
+    </SucursalProvider>
   );
 }
