@@ -44,6 +44,45 @@ async function resolveOrderItem(
     };
   }
 
+  if (item.kind === "MEDIA_MEDIA") {
+    const [product1, product2] = await Promise.all([
+      tx.product.findUnique({ where: { id: item.productId1 } }),
+      tx.product.findUnique({ where: { id: item.productId2 } }),
+    ]);
+    if (!product1 || !product2) {
+      throw new TRPCError({ code: "NOT_FOUND", message: "Producto no encontrado para la mitad y mitad." });
+    }
+
+    // Cada mitad sale (precio entero / 2) + $1.000 — el total de la pizza es
+    // la suma de las dos mitades: (precio1 + precio2) / 2 + $2.000.
+    const unitPrice = Math.round((Number(product1.price) + Number(product2.price)) / 2 + 2000);
+
+    return {
+      data: {
+        // Se ancla al primer producto por la FK — el detalle real de qué dos
+        // sabores lleva vive en `selections`, que es donde lo lee la UI y el
+        // armado de la promo (que no debe contar esto como "1 pizza entera").
+        productId: product1.id,
+        quantity: item.quantity,
+        unitPrice,
+        selections: [
+          {
+            type: "MEDIA_MEDIA",
+            productos: [
+              { productId: product1.id, nombre: product1.name },
+              { productId: product2.id, nombre: product2.name },
+            ],
+          },
+        ] as Prisma.InputJsonValue,
+      },
+      price: unitPrice * item.quantity,
+      // Insumo se descuenta una sola vez por pizza física (no el doble) —
+      // usa la receta del primer producto, que es la misma para cualquier
+      // pizza (1 Prepizza + 1 Bolsas de Muzzarella).
+      deductions: [{ productId: product1.id, quantity: item.quantity }],
+    };
+  }
+
   const promotion = await tx.promotion.findUnique({
     where: { id: item.promotionId },
     include: { items: { include: { product: true, category: true } } },
@@ -261,10 +300,15 @@ export async function removeItemsFromOrder(
     const order = await tx.order.findUnique({ where: { id: orderId } });
     if (!order || !isModifiable(order.status)) return null;
 
-    const looseItems = await tx.orderItem.findMany({
-      where: { orderId, productId: { not: null } },
-      include: { product: true },
-    });
+    // Las pizzas mitad y mitad quedan afuera: "sacame la muzzarella" no
+    // debería tocar una mitad-muzza-mitad-otra-cosa por compartir el mismo
+    // producto ancla.
+    const looseItems = (
+      await tx.orderItem.findMany({
+        where: { orderId, productId: { not: null } },
+        include: { product: true },
+      })
+    ).filter((item) => !isHalfAndHalfItem(item.selections));
 
     let removedTotal = 0;
     const restored: SupplyDeduction[] = [];
@@ -381,15 +425,23 @@ export async function cancelPendingOrder(orderId: string) {
 // reducen o se borran esos renglones) y se agrega un renglón de promoción en
 // su lugar. Corre en un loop por si alcanza para formar más de una promo (o
 // más de una vez la misma). No hace nada si no hay ningún match.
+function isHalfAndHalfItem(selections: unknown): boolean {
+  return Array.isArray(selections) && (selections as Array<{ type?: string }>)[0]?.type === "MEDIA_MEDIA";
+}
+
 export async function reconcilePromotions(orderId: string) {
   return prisma.$transaction(async (tx) => {
     const order = await tx.order.findUnique({ where: { id: orderId } });
     if (!order) return null;
 
-    const looseItems = await tx.orderItem.findMany({
+    const allLooseItems = await tx.orderItem.findMany({
       where: { orderId, productId: { not: null } },
       include: { product: true },
     });
+    // Una pizza mitad y mitad NO cuenta como "1 pizza entera suelta" para
+    // armar una promo (arma un producto propio con precio especial) — se
+    // excluye del pool aunque tenga productId seteado (es solo la FK ancla).
+    const looseItems = allLooseItems.filter((item) => !isHalfAndHalfItem(item.selections));
     if (looseItems.length === 0) return order;
 
     const promotions = await tx.promotion.findMany({

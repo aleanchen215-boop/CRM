@@ -29,17 +29,27 @@ const CHANNEL_LABELS: Record<string, string> = {
 
 type Selection =
   | { type: "FIJO"; nombre: string; cantidad: number }
-  | { type: "VARIABLE"; categoria: string; productos: { productId: string; nombre: string }[] };
+  | { type: "VARIABLE"; categoria: string; productos: { productId: string; nombre: string }[] }
+  | { type: "MEDIA_MEDIA"; productos: { productId: string; nombre: string }[] };
+
+function isHalfAndHalf(selections: unknown): selections is [{ type: "MEDIA_MEDIA"; productos: { nombre: string }[] }] {
+  return Array.isArray(selections) && (selections as Selection[])[0]?.type === "MEDIA_MEDIA";
+}
 
 function itemLabel(item: {
   product: { name: string } | null;
   promotion: { name: string } | null;
+  selections: unknown;
 }) {
+  if (isHalfAndHalf(item.selections)) {
+    const [mitad1, mitad2] = item.selections[0].productos;
+    return `Mitad ${mitad1?.nombre ?? "—"} / Mitad ${mitad2?.nombre ?? "—"}`;
+  }
   return item.product?.name ?? item.promotion?.name ?? "—";
 }
 
 function ItemDetail({ selections }: { selections: unknown }) {
-  if (!Array.isArray(selections) || selections.length === 0) return null;
+  if (!Array.isArray(selections) || selections.length === 0 || isHalfAndHalf(selections)) return null;
   return (
     <ul className="mt-1 flex flex-col gap-0.5 text-xs text-muted-foreground">
       {(selections as Selection[]).map((selection, index) =>
@@ -47,11 +57,11 @@ function ItemDetail({ selections }: { selections: unknown }) {
           <li key={index}>
             {selection.cantidad}x {selection.nombre}
           </li>
-        ) : (
+        ) : selection.type === "VARIABLE" ? (
           <li key={index}>
             {selection.categoria} a elección: {selection.productos.map((p) => p.nombre).join(", ")}
           </li>
-        ),
+        ) : null,
       )}
     </ul>
   );

@@ -67,6 +67,11 @@ export const CREATE_ORDER_TOOL: ChatCompletionTool = {
                 description:
                   "SOLO si nombre es el nombre exacto de una PROMOCIÓN (tal como lo devolvió buscar_promociones) que tiene partes a elección: un nombre de producto por cada unidad elegida. Si nombre es un producto suelto (no una promo), NUNCA uses este campo — usá cantidad en cambio, aunque el cliente haya pedido varias unidades del mismo sabor (ej. 6 empanadas de jamón y queso sueltas = nombre: \"Jamon y queso\", cantidad: 6 — NO nombre: \"6 empanadas a elección\" con sabores repetidos).",
               },
+              mitad2: {
+                type: "string",
+                description:
+                  "SOLO para pizza mitad y mitad: si el cliente pide una pizza con dos sabores distintos (ej. \"media muzzarella, media especial\"), poné el primer sabor en nombre y el segundo acá. El precio se calcula solo (no lo calcules vos): cada mitad sale la mitad del precio entero de esa pizza + $1.000. Omitir si es una pizza de un solo sabor.",
+              },
             },
             required: ["nombre"],
           },
@@ -168,7 +173,7 @@ interface CreateOrderArgs {
   observaciones?: string;
 }
 
-type ItemArg = { nombre: string; cantidad?: number; sabores?: string[] };
+type ItemArg = { nombre: string; cantidad?: number; sabores?: string[]; mitad2?: string };
 
 // Compartido entre crear_pedido y modificar_pedido: mismo matching de
 // producto/promo/cantidad para los dos, así un arreglo acá (ej. el de
@@ -185,6 +190,24 @@ async function resolveItemsForOrder(
   const orderItems: OrderInput["items"] = [];
 
   for (const item of items) {
+    if (item.mitad2?.trim()) {
+      const product1 = findProductMatch(products, item.nombre);
+      const product2 = findProductMatch(products, item.mitad2);
+      if (!product1) {
+        return { error: `No encontré "${item.nombre}" en el catálogo — confirmá el sabor con el cliente antes de reintentar.` };
+      }
+      if (!product2) {
+        return { error: `No encontré "${item.mitad2}" en el catálogo — confirmá el segundo sabor con el cliente antes de reintentar.` };
+      }
+      orderItems.push({
+        kind: "MEDIA_MEDIA",
+        productId1: product1.id,
+        productId2: product2.id,
+        quantity: item.cantidad && item.cantidad > 0 ? item.cantidad : 1,
+      });
+      continue;
+    }
+
     // Se prueba primero como promoción (nombres de combo suelen ser más
     // distintivos) y si no matchea se prueba como producto suelto — así el
     // modelo no tiene que decidir "tipo", que es justo el campo que un
@@ -359,6 +382,11 @@ export const MODIFY_ORDER_TOOL: ChatCompletionTool = {
                 items: { type: "string" },
                 description: "Solo si nombre es una promoción con partes a elección.",
               },
+              mitad2: {
+                type: "string",
+                description:
+                  "SOLO para pizza mitad y mitad: primer sabor en nombre, segundo sabor acá. El precio se calcula solo.",
+              },
             },
             required: ["nombre"],
           },
@@ -468,7 +496,19 @@ export async function handleModifyOrder(customerId: string, args: ModifyOrderArg
       return count;
     };
     const isAlreadyOnOrder = (item: OrderInput["items"][number]) => {
-      if (item.kind !== "PRODUCTO") {
+      if (item.kind === "MEDIA_MEDIA") {
+        const newPair = [item.productId1, item.productId2].sort();
+        return existingItems.some((existing) => {
+          if (!Array.isArray(existing.selections)) return false;
+          const selection = (existing.selections as Array<Record<string, unknown>>)[0];
+          if (selection?.type !== "MEDIA_MEDIA" || !Array.isArray(selection.productos)) return false;
+          const existingPair = (selection.productos as Array<{ productId?: string }>)
+            .map((p) => p.productId)
+            .sort();
+          return existingPair[0] === newPair[0] && existingPair[1] === newPair[1] && existing.quantity === item.quantity;
+        });
+      }
+      if (item.kind === "PROMOCION") {
         return existingItems.some((existing) => existing.promotionId === item.promotionId);
       }
       const looseMatch = existingItems.some(

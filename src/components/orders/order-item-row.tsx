@@ -130,10 +130,16 @@ export function OrderItemRow({
                   </Select>
                   <Input
                     type="number"
-                    min={1}
+                    min={row.rowType === "PIZZA" ? 0.5 : 1}
+                    step={row.rowType === "PIZZA" ? 0.5 : 1}
                     className="w-20 shrink-0"
                     value={row.quantity}
                     onChange={(event) => updateRow({ quantity: Number(event.target.value) || 1 })}
+                    title={
+                      row.rowType === "PIZZA"
+                        ? "0.5 = media pizza. Agregá otro renglón de pizza en 0.5 con otro sabor para armar una mitad y mitad."
+                        : undefined
+                    }
                   />
                 </>
               ) : (
