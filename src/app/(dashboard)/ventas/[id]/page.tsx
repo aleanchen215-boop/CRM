@@ -43,7 +43,7 @@ function itemLabel(item: {
 }) {
   if (isHalfAndHalf(item.selections)) {
     const [mitad1, mitad2] = item.selections[0].productos;
-    return `Mitad ${mitad1?.nombre ?? "—"} / Mitad ${mitad2?.nombre ?? "—"}`;
+    return mitad2 ? `Mitad ${mitad1?.nombre ?? "—"} / Mitad ${mitad2?.nombre ?? "—"}` : `Media ${mitad1?.nombre ?? "—"}`;
   }
   return item.product?.name ?? item.promotion?.name ?? "—";
 }

@@ -59,7 +59,7 @@ export const CREATE_ORDER_TOOL: ChatCompletionTool = {
               cantidad: {
                 type: "number",
                 description:
-                  "Cuántas unidades de este producto. Poné el número acá, no dentro de nombre. Omitir para promociones (siempre es 1).",
+                  "Cuántas unidades de este producto. Poné el número acá, no dentro de nombre. Omitir para promociones (siempre es 1). Para pizza: si el cliente pide MEDIA pizza de un solo sabor (sin combinar con otro), poné acá 0.5 — el sistema cobra el precio entero / 2 + $1.000.",
               },
               sabores: {
                 type: "array",
@@ -70,7 +70,7 @@ export const CREATE_ORDER_TOOL: ChatCompletionTool = {
               mitad2: {
                 type: "string",
                 description:
-                  "SOLO para pizza mitad y mitad: si el cliente pide una pizza con dos sabores distintos (ej. \"media muzzarella, media especial\"), poné el primer sabor en nombre y el segundo acá. El precio se calcula solo (no lo calcules vos): cada mitad sale la mitad del precio entero de esa pizza + $1.000. Omitir si es una pizza de un solo sabor.",
+                  "SOLO para pizza mitad y mitad con DOS sabores distintos (ej. \"media muzzarella, media especial\"): poné el primer sabor en nombre y el segundo acá. Si es media pizza de UN solo sabor, no uses este campo — usá cantidad: 0.5 en cambio. El precio se calcula siempre solo (no lo calcules vos).",
               },
             },
             required: ["nombre"],
@@ -190,20 +190,25 @@ async function resolveItemsForOrder(
   const orderItems: OrderInput["items"] = [];
 
   for (const item of items) {
-    if (item.mitad2?.trim()) {
+    // mitad2 presente = pizza mitad y mitad (dos sabores). cantidad=0.5 sin
+    // mitad2 = media pizza de un solo sabor, sola.
+    if (item.mitad2?.trim() || item.cantidad === 0.5) {
       const product1 = findProductMatch(products, item.nombre);
-      const product2 = findProductMatch(products, item.mitad2);
       if (!product1) {
         return { error: `No encontré "${item.nombre}" en el catálogo — confirmá el sabor con el cliente antes de reintentar.` };
       }
-      if (!product2) {
-        return { error: `No encontré "${item.mitad2}" en el catálogo — confirmá el segundo sabor con el cliente antes de reintentar.` };
+      let product2: typeof product1 | undefined;
+      if (item.mitad2?.trim()) {
+        product2 = findProductMatch(products, item.mitad2);
+        if (!product2) {
+          return { error: `No encontré "${item.mitad2}" en el catálogo — confirmá el segundo sabor con el cliente antes de reintentar.` };
+        }
       }
       orderItems.push({
         kind: "MEDIA_MEDIA",
         productId1: product1.id,
-        productId2: product2.id,
-        quantity: item.cantidad && item.cantidad > 0 ? item.cantidad : 1,
+        productId2: product2?.id,
+        quantity: item.mitad2 && item.cantidad && item.cantidad > 0 ? item.cantidad : 1,
       });
       continue;
     }
@@ -375,7 +380,8 @@ export const MODIFY_ORDER_TOOL: ChatCompletionTool = {
               },
               cantidad: {
                 type: "number",
-                description: "Cuántas unidades. Omitir para promociones (siempre es 1).",
+                description:
+                  "Cuántas unidades. Omitir para promociones (siempre es 1). Para media pizza de un solo sabor, poné 0.5.",
               },
               sabores: {
                 type: "array",
@@ -385,7 +391,7 @@ export const MODIFY_ORDER_TOOL: ChatCompletionTool = {
               mitad2: {
                 type: "string",
                 description:
-                  "SOLO para pizza mitad y mitad: primer sabor en nombre, segundo sabor acá. El precio se calcula solo.",
+                  "SOLO para pizza mitad y mitad con DOS sabores: primer sabor en nombre, segundo sabor acá. Para un solo sabor usá cantidad: 0.5 en cambio. El precio se calcula solo.",
               },
             },
             required: ["nombre"],

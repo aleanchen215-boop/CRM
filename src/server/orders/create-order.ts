@@ -45,35 +45,39 @@ async function resolveOrderItem(
   }
 
   if (item.kind === "MEDIA_MEDIA") {
-    const [product1, product2] = await Promise.all([
-      tx.product.findUnique({ where: { id: item.productId1 } }),
-      tx.product.findUnique({ where: { id: item.productId2 } }),
-    ]);
-    if (!product1 || !product2) {
-      throw new TRPCError({ code: "NOT_FOUND", message: "Producto no encontrado para la mitad y mitad." });
+    const product1 = await tx.product.findUnique({ where: { id: item.productId1 } });
+    if (!product1) {
+      throw new TRPCError({ code: "NOT_FOUND", message: "Producto no encontrado para la media pizza." });
+    }
+    const product2 = item.productId2 ? await tx.product.findUnique({ where: { id: item.productId2 } }) : null;
+    if (item.productId2 && !product2) {
+      throw new TRPCError({ code: "NOT_FOUND", message: "Producto no encontrado para la media pizza." });
     }
 
-    // Cada mitad sale (precio entero / 2) + $1.000 — el total de la pizza es
-    // la suma de las dos mitades: (precio1 + precio2) / 2 + $2.000.
-    const unitPrice = Math.round((Number(product1.price) + Number(product2.price)) / 2 + 2000);
+    // Cada mitad sale (precio entero / 2) + $1.000. Con un solo sabor es
+    // media pizza sola; con dos, es una mitad y mitad y el total es la suma
+    // de las dos mitades: (precio1 + precio2) / 2 + $2.000.
+    const unitPrice = product2
+      ? Math.round((Number(product1.price) + Number(product2.price)) / 2 + 2000)
+      : Math.round(Number(product1.price) / 2 + 1000);
+
+    const productos = product2
+      ? [
+          { productId: product1.id, nombre: product1.name },
+          { productId: product2.id, nombre: product2.name },
+        ]
+      : [{ productId: product1.id, nombre: product1.name }];
 
     return {
       data: {
-        // Se ancla al primer producto por la FK — el detalle real de qué dos
-        // sabores lleva vive en `selections`, que es donde lo lee la UI y el
-        // armado de la promo (que no debe contar esto como "1 pizza entera").
+        // Se ancla al primer producto por la FK — el detalle real de qué
+        // sabor(es) lleva vive en `selections`, que es donde lo lee la UI y
+        // el armado de la promo (que no debe contar esto como "1 pizza
+        // entera").
         productId: product1.id,
         quantity: item.quantity,
         unitPrice,
-        selections: [
-          {
-            type: "MEDIA_MEDIA",
-            productos: [
-              { productId: product1.id, nombre: product1.name },
-              { productId: product2.id, nombre: product2.name },
-            ],
-          },
-        ] as Prisma.InputJsonValue,
+        selections: [{ type: "MEDIA_MEDIA", productos }] as Prisma.InputJsonValue,
       },
       price: unitPrice * item.quantity,
       // Insumo se descuenta una sola vez por pizza física (no el doble) —

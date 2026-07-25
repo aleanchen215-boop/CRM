@@ -48,8 +48,9 @@ function emptyRow(): OrderFormValues["items"][number] {
   return { rowType: "PIZZA", productId: "", quantity: 1, promotionId: "", variableSelections: [] };
 }
 
-// 0.5 = media pizza — se combina de a dos renglones en una pizza mitad y
-// mitad (ver toApiItems). Solo tiene sentido para pizzas, no empanadas.
+// 0.5 = media pizza. Dos renglones de 0.5 se combinan en una mitad y mitad
+// (dos sabores); si queda uno solo sin pareja, es media pizza de ese sabor
+// sola. Solo tiene sentido para pizzas, no empanadas.
 function isHalfPizzaRow(row: OrderFormValues["items"][number]): boolean {
   return row.rowType === "PIZZA" && row.quantity === 0.5;
 }
@@ -58,7 +59,6 @@ function isHalfPizzaRow(row: OrderFormValues["items"][number]): boolean {
 // es más simple que la unión discriminada que espera la API, así que acá
 // se chequea lo mínimo y se transforma recién al enviar.
 function validateRows(rows: OrderFormValues["items"]): string | null {
-  let halfPizzaCount = 0;
   for (const row of rows) {
     if (row.rowType === "PROMOCION") {
       if (!row.promotionId) return "Elegí una promoción en todos los renglones.";
@@ -76,10 +76,6 @@ function validateRows(rows: OrderFormValues["items"]): string | null {
     if (!Number.isInteger(row.quantity) && row.quantity !== 0.5) {
       return "La cantidad tiene que ser un número entero (o 0.5 para media pizza).";
     }
-    if (isHalfPizzaRow(row)) halfPizzaCount++;
-  }
-  if (halfPizzaCount % 2 !== 0) {
-    return "Las medias pizzas se combinan de a dos sabores — falta el segundo renglón de 0.5.";
   }
   return null;
 }
@@ -97,10 +93,16 @@ function toApiItems(rows: OrderFormValues["items"]): OrderInput["items"] {
     );
   }
 
+  // De a dos: mitad y mitad (dos sabores). Si sobra uno solo, media pizza
+  // de ese sabor sola (mismo precio: entero/2 + $1.000, sin productId2).
   for (let i = 0; i < halfPizzas.length; i += 2) {
     const [first, second] = [halfPizzas[i], halfPizzas[i + 1]];
-    if (!second) break; // validateRows ya rechaza esto, pero por las dudas.
-    items.push({ kind: "MEDIA_MEDIA" as const, productId1: first.productId, productId2: second.productId, quantity: 1 });
+    items.push({
+      kind: "MEDIA_MEDIA" as const,
+      productId1: first.productId,
+      productId2: second?.productId,
+      quantity: 1,
+    });
   }
 
   return items;

@@ -41,13 +41,14 @@ export const promotionOrderItemInputSchema = z.object({
   variableSelections: z.array(promotionItemSelectionSchema),
 });
 
-// Pizza mitad y mitad: cada mitad sale (precio entero / 2) + $1.000, así que
-// el total es (precio1 + precio2) / 2 + $2.000. Se calcula en el servidor
-// (create-order.ts), acá solo se valida qué dos productos combinar.
+// Media pizza: sale (precio entero / 2) + $1.000. Si productId2 viene, son
+// dos sabores combinados en una pizza mitad y mitad y el total es la suma de
+// las dos mitades ((precio1 + precio2) / 2 + $2.000); si no viene, es media
+// pizza de un solo sabor sola. Se calcula siempre en el servidor.
 export const halfAndHalfItemInputSchema = z.object({
   kind: z.literal("MEDIA_MEDIA"),
-  productId1: z.string().min(1, "Elegí el primer sabor"),
-  productId2: z.string().min(1, "Elegí el segundo sabor"),
+  productId1: z.string().min(1, "Elegí el sabor"),
+  productId2: z.string().min(1).optional(),
   quantity: z.coerce.number().int().positive("Tiene que ser mayor a 0").default(1),
 });
 

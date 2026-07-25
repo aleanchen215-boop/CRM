@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { Controller, type Control } from "react-hook-form";
 import { Trash2 } from "lucide-react";
 import { trpc } from "@/lib/trpc/client";
@@ -26,6 +27,56 @@ const CATEGORY_BY_ROW_TYPE: Record<"PIZZA" | "EMPANADA", string> = {
   PIZZA: "Pizzas",
   EMPANADA: "Empanadas",
 };
+
+// Input de cantidad como texto libre en vez de atado directo al número: si
+// se controla directo por el número, borrar el "1" para escribir "0.5"
+// vuelve a mostrar "1" en cada tecla (Number("") || 1) y nunca se puede
+// completar. Acá se deja escribir cualquier cosa y solo se confirma al
+// padre cuando el texto ya parsea a un número válido > 0.
+function QuantityInput({
+  value,
+  min,
+  step,
+  title,
+  onChange,
+}: {
+  value: number;
+  min: number;
+  step: number;
+  title?: string;
+  onChange: (value: number) => void;
+}) {
+  const [text, setText] = useState(String(value));
+  // Patrón recomendado de React para "resetear estado cuando cambia una
+  // prop" sin useEffect (evita el render extra en cascada): se ajusta acá,
+  // durante el render, comparando contra el último valor visto.
+  const [prevValue, setPrevValue] = useState(value);
+  if (value !== prevValue) {
+    setPrevValue(value);
+    setText(String(value));
+  }
+
+  return (
+    <Input
+      type="number"
+      inputMode="decimal"
+      min={min}
+      step={step}
+      className="w-20 shrink-0"
+      value={text}
+      title={title}
+      onChange={(event) => {
+        const raw = event.target.value;
+        setText(raw);
+        const parsed = Number(raw);
+        if (raw !== "" && !Number.isNaN(parsed) && parsed > 0) {
+          onChange(parsed);
+        }
+      }}
+      onBlur={() => setText(String(value))}
+    />
+  );
+}
 
 export function OrderItemRow({
   index,
@@ -128,16 +179,14 @@ export function OrderItemRow({
                       ))}
                     </SelectContent>
                   </Select>
-                  <Input
-                    type="number"
+                  <QuantityInput
+                    value={row.quantity}
                     min={row.rowType === "PIZZA" ? 0.5 : 1}
                     step={row.rowType === "PIZZA" ? 0.5 : 1}
-                    className="w-20 shrink-0"
-                    value={row.quantity}
-                    onChange={(event) => updateRow({ quantity: Number(event.target.value) || 1 })}
+                    onChange={(quantity) => updateRow({ quantity })}
                     title={
                       row.rowType === "PIZZA"
-                        ? "0.5 = media pizza. Agregá otro renglón de pizza en 0.5 con otro sabor para armar una mitad y mitad."
+                        ? "0.5 = media pizza. Agregá otro renglón de pizza en 0.5 con otro sabor para armar una mitad y mitad, o dejalo solo para media pizza de un sabor."
                         : undefined
                     }
                   />
