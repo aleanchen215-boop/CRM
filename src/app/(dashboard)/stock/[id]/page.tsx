@@ -9,6 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { SupplyForm } from "@/components/supplies/supply-form";
 import { SupplyLevelBadge } from "@/components/supplies/supply-level-badge";
 import { MovementDialog } from "@/components/supplies/movement-dialog";
+import { useCanPerform } from "@/lib/use-can-perform";
 
 const MOVEMENT_LABELS: Record<string, string> = {
   ENTRADA: "Entrada",
@@ -22,6 +23,7 @@ export default function SupplyDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
+  const canWrite = useCanPerform("stock:write");
   const { data: supply, isLoading } = trpc.supplies.getById.useQuery({ id });
 
   if (isLoading) {
@@ -63,17 +65,34 @@ export default function SupplyDetailPage({
               <CardTitle className="text-base font-medium">Datos del insumo</CardTitle>
             </CardHeader>
             <CardContent>
-              <SupplyForm
-                mode="edit"
-                supplyId={supply.id}
-                defaultValues={{
-                  name: supply.name,
-                  unit: supply.unit ?? "",
-                  stockMinimo: supply.stockMinimo,
-                  stockIdeal: supply.stockIdeal,
-                }}
-                onSuccess={() => {}}
-              />
+              {canWrite ? (
+                <SupplyForm
+                  mode="edit"
+                  supplyId={supply.id}
+                  defaultValues={{
+                    name: supply.name,
+                    unit: supply.unit ?? "",
+                    stockMinimo: supply.stockMinimo,
+                    stockIdeal: supply.stockIdeal,
+                  }}
+                  onSuccess={() => {}}
+                />
+              ) : (
+                <dl className="grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <dt className="text-muted-foreground">Unidad</dt>
+                    <dd>{supply.unit ?? "—"}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-muted-foreground">Mínimo</dt>
+                    <dd>{supply.stockMinimo}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-muted-foreground">Ideal</dt>
+                    <dd>{supply.stockIdeal}</dd>
+                  </div>
+                </dl>
+              )}
             </CardContent>
           </Card>
         </div>
@@ -81,7 +100,7 @@ export default function SupplyDetailPage({
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="text-base font-medium">Movimientos</CardTitle>
-            <MovementDialog supplyId={supply.id} />
+            {canWrite && <MovementDialog supplyId={supply.id} />}
           </CardHeader>
           <CardContent>
             {supply.movements.length === 0 ? (

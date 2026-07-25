@@ -28,17 +28,19 @@ import {
 import { UserMenu } from "@/components/layout/user-menu";
 import type { UserRole } from "@/generated/prisma/enums";
 
-// Cajero y Productor son roles acotados a un par de pantallas puntuales
-// (creados a pedido: cajero = conversaciones + ventas, productor = stock de
-// ambas sucursales); Vendedor Paracao/Almafuerte son igual de acotados pero
-// además solo ven su propia sucursal (se filtra del lado del servidor según
-// User.sucursalId). El resto de los roles ve el set "de negocio" completo.
+// Cajero, Productor y Depósito son roles acotados a un par de pantallas
+// puntuales (creados a pedido: cajero = conversaciones + ventas, productor =
+// stock de ambas sucursales, depósito = solo ver stock/faltantes de ambas,
+// sin modificar nada); Vendedor Paracao/Almafuerte son igual de acotados
+// pero además solo ven su propia sucursal (se filtra del lado del servidor
+// según User.sucursalId). El resto de los roles ve el set "de negocio"
+// completo.
 const NAV_ITEMS = [
   {
     href: "/",
     label: "Dashboard",
     icon: LayoutDashboard,
-    roles: ["ADMIN", "VENDEDOR", "ATENCION", "SUPERVISOR", "DEPOSITO"],
+    roles: ["ADMIN", "VENDEDOR", "ATENCION", "SUPERVISOR"],
   },
   {
     href: "/clientes",
@@ -62,7 +64,7 @@ const NAV_ITEMS = [
     href: "/productos",
     label: "Productos",
     icon: UtensilsCrossed,
-    roles: ["ADMIN", "VENDEDOR", "DEPOSITO", "SUPERVISOR"],
+    roles: ["ADMIN", "VENDEDOR", "SUPERVISOR"],
   },
   {
     href: "/stock",
@@ -86,7 +88,7 @@ const NAV_ITEMS = [
     href: "/reportes",
     label: "Reportes",
     icon: BarChart3,
-    roles: ["ADMIN", "VENDEDOR", "DEPOSITO", "SUPERVISOR"],
+    roles: ["ADMIN", "VENDEDOR", "SUPERVISOR"],
   },
 ] as const satisfies ReadonlyArray<{
   href: string;

@@ -8,10 +8,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useSucursalSelection } from "@/components/layout/sucursal-context";
+import { useCanPerform } from "@/lib/use-can-perform";
 
 export function MissingSupplies() {
   const [text, setText] = useState("");
   const utils = trpc.useUtils();
+  const canWrite = useCanPerform("stock:write");
   const { selectedSucursalId } = useSucursalSelection();
 
   const { data: items, isLoading } = trpc.supplies.missingList.useQuery({
@@ -46,22 +48,24 @@ export function MissingSupplies() {
         <CardTitle className="text-base font-medium">Insumos faltantes</CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
-        <form onSubmit={handleSubmit} className="flex items-center gap-2">
-          <Input
-            placeholder="Ej: bolsas de muzzarella, cajas para empanadas…"
-            value={text}
-            onChange={(event) => setText(event.target.value)}
-            disabled={create.isPending || !selectedSucursalId}
-          />
-          <Button
-            type="submit"
-            size="icon"
-            disabled={create.isPending || !text.trim() || !selectedSucursalId}
-          >
-            <Plus />
-          </Button>
-        </form>
-        {!selectedSucursalId && (
+        {canWrite && (
+          <form onSubmit={handleSubmit} className="flex items-center gap-2">
+            <Input
+              placeholder="Ej: bolsas de muzzarella, cajas para empanadas…"
+              value={text}
+              onChange={(event) => setText(event.target.value)}
+              disabled={create.isPending || !selectedSucursalId}
+            />
+            <Button
+              type="submit"
+              size="icon"
+              disabled={create.isPending || !text.trim() || !selectedSucursalId}
+            >
+              <Plus />
+            </Button>
+          </form>
+        )}
+        {canWrite && !selectedSucursalId && (
           <p className="text-xs text-muted-foreground">
             Elegí una sucursal arriba para poder anotar un faltante.
           </p>
@@ -84,16 +88,18 @@ export function MissingSupplies() {
                     <span className="text-muted-foreground"> · {item.sucursal.name}</span>
                   )}
                 </span>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  disabled={resolve.isPending}
-                  onClick={() => resolve.mutate({ id: item.id })}
-                >
-                  <Check />
-                  Recibido
-                </Button>
+                {canWrite && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={resolve.isPending}
+                    onClick={() => resolve.mutate({ id: item.id })}
+                  >
+                    <Check />
+                    Recibido
+                  </Button>
+                )}
               </li>
             ))}
           </ul>

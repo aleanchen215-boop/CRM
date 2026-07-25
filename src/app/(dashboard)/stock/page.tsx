@@ -18,6 +18,7 @@ import { SupplyLevelBadge } from "@/components/supplies/supply-level-badge";
 import { NewSupplyDialog } from "@/components/supplies/new-supply-dialog";
 import { MissingSupplies } from "@/components/supplies/missing-supplies";
 import { useSucursalSelection } from "@/components/layout/sucursal-context";
+import { useCanPerform } from "@/lib/use-can-perform";
 
 // Empanadas primero (son el grueso del catálogo y las que más rotan), el
 // resto (prepizzas, insumos sueltos como bolsas de muzzarella, etc.)
@@ -30,6 +31,7 @@ function isEmpanadaSupply(supply: { productUsages: { product: { category: { name
 
 export default function StockPage() {
   const [search, setSearch] = useState("");
+  const canWrite = useCanPerform("stock:write");
   const { selectedSucursalId } = useSucursalSelection();
   const { data: supplies, isLoading } = trpc.supplies.list.useQuery({
     search,
@@ -48,7 +50,7 @@ export default function StockPage() {
             Insumos e ingredientes, solo cantidad disponible.
           </p>
         </div>
-        <NewSupplyDialog />
+        {canWrite && <NewSupplyDialog />}
       </div>
 
       <MissingSupplies />

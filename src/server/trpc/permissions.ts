@@ -18,15 +18,18 @@ export const PERMISSIONS = {
   "orders:cancel": ["ADMIN"],
   // Productos = catálogo de venta (nombre/precio). Todos los que venden
   // necesitan verlo; solo Admin lo edita (cambios de precio son sensibles).
-  "products:read": ["ADMIN", "VENDEDOR", "DEPOSITO", "SUPERVISOR", "CAJERO", "VENDEDOR_PARACAO", "VENDEDOR_ALMAFUERTE"],
+  // Depósito no vende — no necesita ver el catálogo, solo Stock/faltantes.
+  "products:read": ["ADMIN", "VENDEDOR", "SUPERVISOR", "CAJERO", "VENDEDOR_PARACAO", "VENDEDOR_ALMAFUERTE"],
   "products:write": ["ADMIN"],
-  // Stock = insumos/ingredientes (cantidad). Productor entra solo a ver
+  // Stock = insumos/ingredientes (cantidad). Depósito es de solo lectura
+  // (ve stock e insumos faltantes de las dos sucursales, no modifica nada
+  // — ni cantidades ni la lista de faltantes); Productor entra solo a ver
   // esto (stock y faltantes) de las dos sucursales; el vendedor de cada
   // sucursal solo ve la suya (queda resuelto por su User.sucursalId, no acá).
-  "stock:write": ["ADMIN", "DEPOSITO"],
+  "stock:write": ["ADMIN"],
   "stock:read": ["ADMIN", "DEPOSITO", "SUPERVISOR", "PRODUCTOR", "VENDEDOR_PARACAO", "VENDEDOR_ALMAFUERTE"],
   "automations:write": ["ADMIN"],
-  "reports:read": ["ADMIN", "VENDEDOR", "DEPOSITO", "SUPERVISOR"],
+  "reports:read": ["ADMIN", "VENDEDOR", "SUPERVISOR"],
   "users:manage": ["ADMIN"],
 } as const satisfies Record<string, readonly UserRole[]>;
 
