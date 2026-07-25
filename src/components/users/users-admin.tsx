@@ -21,6 +21,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { NewUserDialog } from "@/components/users/new-user-dialog";
 
 const ROLE_LABELS: Record<UserRole, string> = {
   ADMIN: "Administrador",
@@ -70,8 +71,9 @@ export function UsersAdmin() {
 
   return (
     <Card>
-      <CardHeader>
+      <CardHeader className="flex flex-row items-center justify-between gap-4">
         <CardTitle className="text-base font-medium">Usuarios y roles</CardTitle>
+        <NewUserDialog />
       </CardHeader>
       <CardContent>
         {isLoading && <p className="text-sm text-muted-foreground">Cargando…</p>}
