@@ -42,7 +42,12 @@ export function UserMenu({ name, email, role }: { name: string; email: string; r
   }
 
   return (
-    <DropdownMenu>
+    // modal={false}: en mobile este menú vive adentro del Sheet del sidebar
+    // (también modal) — dos overlays modales anidados compiten por el
+    // manejo de "click afuera", y el toque en el trigger terminaba
+    // cerrando el Sheet en vez de abrir el menú (esto es lo que el usuario
+    // reportó como "se abre otra página y no carga").
+    <DropdownMenu modal={false}>
       <DropdownMenuTrigger render={<SidebarMenuButton size="lg" />}>
         <Avatar className="size-7">
           <AvatarFallback className="text-xs">{initials}</AvatarFallback>
