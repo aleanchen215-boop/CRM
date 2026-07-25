@@ -26,23 +26,81 @@ import {
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
 import { UserMenu } from "@/components/layout/user-menu";
+import type { UserRole } from "@/generated/prisma/enums";
 
+// Cajero y Productor son roles acotados a un par de pantallas puntuales
+// (creados a pedido: cajero = conversaciones + ventas, productor = stock);
+// el resto de los roles ve el set "de negocio" completo.
 const NAV_ITEMS = [
-  { href: "/", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/clientes", label: "Clientes", icon: Users },
-  { href: "/conversaciones", label: "Conversaciones", icon: MessageCircle },
-  { href: "/ventas", label: "Ventas", icon: ShoppingCart },
-  { href: "/productos", label: "Productos", icon: UtensilsCrossed },
-  { href: "/stock", label: "Stock", icon: Boxes },
-  { href: "/ia", label: "IA", icon: Sparkles },
-  { href: "/automatizaciones", label: "Automatizaciones", icon: Workflow },
-  { href: "/reportes", label: "Reportes", icon: BarChart3 },
-] as const;
+  {
+    href: "/",
+    label: "Dashboard",
+    icon: LayoutDashboard,
+    roles: ["ADMIN", "VENDEDOR", "ATENCION", "SUPERVISOR", "DEPOSITO"],
+  },
+  {
+    href: "/clientes",
+    label: "Clientes",
+    icon: Users,
+    roles: ["ADMIN", "VENDEDOR", "ATENCION", "SUPERVISOR"],
+  },
+  {
+    href: "/conversaciones",
+    label: "Conversaciones",
+    icon: MessageCircle,
+    roles: ["ADMIN", "VENDEDOR", "ATENCION", "SUPERVISOR", "CAJERO"],
+  },
+  {
+    href: "/ventas",
+    label: "Ventas",
+    icon: ShoppingCart,
+    roles: ["ADMIN", "VENDEDOR", "SUPERVISOR", "CAJERO"],
+  },
+  {
+    href: "/productos",
+    label: "Productos",
+    icon: UtensilsCrossed,
+    roles: ["ADMIN", "VENDEDOR", "DEPOSITO", "SUPERVISOR"],
+  },
+  {
+    href: "/stock",
+    label: "Stock",
+    icon: Boxes,
+    roles: ["ADMIN", "DEPOSITO", "SUPERVISOR", "PRODUCTOR"],
+  },
+  {
+    href: "/ia",
+    label: "IA",
+    icon: Sparkles,
+    roles: ["ADMIN", "ATENCION", "SUPERVISOR"],
+  },
+  {
+    href: "/automatizaciones",
+    label: "Automatizaciones",
+    icon: Workflow,
+    roles: ["ADMIN"],
+  },
+  {
+    href: "/reportes",
+    label: "Reportes",
+    icon: BarChart3,
+    roles: ["ADMIN", "VENDEDOR", "DEPOSITO", "SUPERVISOR"],
+  },
+] as const satisfies ReadonlyArray<{
+  href: string;
+  label: string;
+  icon: typeof LayoutDashboard;
+  roles: readonly UserRole[];
+}>;
 
-type AppSidebarUser = { name: string; email: string; role: string };
+const CONFIGURACION_ROLES: readonly UserRole[] = ["ADMIN"];
+
+type AppSidebarUser = { name: string; email: string; role: UserRole };
 
 export function AppSidebar({ user }: { user: AppSidebarUser }) {
   const pathname = usePathname();
+  const items = NAV_ITEMS.filter((item) => (item.roles as readonly UserRole[]).includes(user.role));
+  const showConfiguracion = CONFIGURACION_ROLES.includes(user.role);
 
   return (
     <Sidebar collapsible="icon">
@@ -60,7 +118,7 @@ export function AppSidebar({ user }: { user: AppSidebarUser }) {
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>
-              {NAV_ITEMS.map((item) => {
+              {items.map((item) => {
                 const isActive =
                   item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
                 return (
@@ -82,16 +140,18 @@ export function AppSidebar({ user }: { user: AppSidebarUser }) {
       </SidebarContent>
       <SidebarFooter>
         <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              render={<Link href="/configuracion" />}
-              isActive={pathname.startsWith("/configuracion")}
-              tooltip="Configuración"
-            >
-              <Settings />
-              <span>Configuración</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
+          {showConfiguracion && (
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                render={<Link href="/configuracion" />}
+                isActive={pathname.startsWith("/configuracion")}
+                tooltip="Configuración"
+              >
+                <Settings />
+                <span>Configuración</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          )}
           <SidebarMenuItem>
             <UserMenu {...user} />
           </SidebarMenuItem>

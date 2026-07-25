@@ -20,6 +20,8 @@ enum UserRole {
   DEPOSITO
   ATENCION
   SUPERVISOR
+  CAJERO
+  PRODUCTOR
 }
 
 model User {
@@ -27,7 +29,13 @@ model User {
   // Coincide con el id de Supabase Auth (auth.users.id) — no hay password acá,
   // Supabase Auth es dueño de las credenciales.
   authId    String   @unique
+  // Para cuentas de staff creadas desde el CRM sin email real: se guarda acá
+  // un email sintético interno (Supabase Auth lo exige igual) y el login se
+  // hace por username, no por este campo.
   email     String   @unique
+  // Usuario de login para cuentas de staff sin email (ej. cajero, productor).
+  // Nulo para las cuentas que siguen entrando con email real.
+  username  String?  @unique
   name      String
   role      UserRole
   active    Boolean  @default(true)

@@ -18,6 +18,8 @@ const ROLE_LABELS: Record<string, string> = {
   DEPOSITO: "Depósito",
   ATENCION: "Atención al cliente",
   SUPERVISOR: "Supervisor",
+  CAJERO: "Cajero",
+  PRODUCTOR: "Productor",
 };
 
 export function UserMenu({ name, email, role }: { name: string; email: string; role: string }) {

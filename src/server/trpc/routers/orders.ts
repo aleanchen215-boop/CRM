@@ -15,12 +15,13 @@ const NOTIFICATION_MESSAGES = {
 } as const;
 
 export const ordersRouter = router({
-  // Los cancelados no aparecen en el tablero de ventas (quedan afuera de la
-  // vista, no se borran de la base) — el detalle sigue accesible por link
-  // directo si hace falta consultarlo.
+  // Los cancelados y los ya entregados no aparecen en el tablero de ventas
+  // (quedan afuera de la vista, no se borran de la base) — el detalle sigue
+  // accesible por link directo, y lo entregado pasa a contar en el
+  // Dashboard/Reportes en vez de seguir ocupando la vista de "en curso".
   list: requirePermission("orders:read").query(async ({ ctx }) => {
     const orders = await ctx.prisma.order.findMany({
-      where: { status: { not: "CANCELADO" } },
+      where: { status: { notIn: ["CANCELADO", "ENTREGADO"] } },
       orderBy: { createdAt: "desc" },
       include: {
         customer: true,

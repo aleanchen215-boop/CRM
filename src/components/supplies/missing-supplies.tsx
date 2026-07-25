@@ -74,7 +74,7 @@ export function MissingSupplies() {
                   onClick={() => resolve.mutate({ id: item.id })}
                 >
                   <Check />
-                  Comprado
+                  Recibido
                 </Button>
               </li>
             ))}
