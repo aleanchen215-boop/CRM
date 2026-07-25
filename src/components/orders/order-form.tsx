@@ -144,7 +144,13 @@ export function OrderForm({
       return sum + (promo?.price ?? 0);
     }
     const product = products?.find((p) => p.id === row.productId);
-    return sum + (product ? product.price * (row.quantity || 0) : 0);
+    if (!product) return sum;
+    // Media pizza (0.5): (precio entero / 2) + $1.000, no precio * 0.5 —
+    // mismo cálculo tanto si queda sola como si se combina con otra mitad
+    // (la suma de las dos mitades da el mismo total que la fórmula del
+    // servidor para la mitad y mitad).
+    if (isHalfPizzaRow(row)) return sum + Math.round(product.price / 2 + 1000);
+    return sum + product.price * (row.quantity || 0);
   }, 0);
   // Mismo valor fijo que DELIVERY_FEE en el servidor — se suma solo acá
   // para que la vista previa del total coincida con lo que se va a cobrar.
