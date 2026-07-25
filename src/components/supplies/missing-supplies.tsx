@@ -10,11 +10,15 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useSucursalSelection } from "@/components/layout/sucursal-context";
 import { useCanPerform } from "@/lib/use-can-perform";
 
-export function MissingSupplies() {
+export function MissingSupplies({ sucursalId: fixedSucursalId }: { sucursalId?: string } = {}) {
   const [text, setText] = useState("");
   const utils = trpc.useUtils();
   const canWrite = useCanPerform("stock:write");
-  const { selectedSucursalId } = useSucursalSelection();
+  const { selectedSucursalId: globalSelectedSucursalId } = useSucursalSelection();
+  // Si se pasa sucursalId explícito (ej. una sección fija de "Paracao"),
+  // manda por sobre el selector global de arriba.
+  const selectedSucursalId = fixedSucursalId ?? globalSelectedSucursalId;
+  const showSucursalName = !fixedSucursalId && !selectedSucursalId;
 
   const { data: items, isLoading } = trpc.supplies.missingList.useQuery({
     sucursalId: selectedSucursalId,
@@ -84,7 +88,7 @@ export function MissingSupplies() {
               >
                 <span>
                   {item.text}
-                  {!selectedSucursalId && (
+                  {showSucursalName && (
                     <span className="text-muted-foreground"> · {item.sucursal.name}</span>
                   )}
                 </span>

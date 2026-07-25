@@ -16,12 +16,17 @@ const ALL_VALUE = "__todas__";
 // Solo aparece para usuarios sin sucursal fija (User.sucursalId nulo — Admin,
 // Supervisor, etc.): el resto de los roles ya está atado a una sola y no
 // necesita elegir. Afecta qué ve en Ventas/Conversaciones/Stock/Reportes.
+// Depósito queda afuera aparte: su única pantalla (Stock) siempre muestra
+// las dos sucursales apiladas sin importar este selector, así que no tiene
+// ningún efecto para ese rol.
 export function SucursalSwitcher() {
   const { data: me } = trpc.system.me.useQuery();
   const { data: sucursales } = trpc.sucursales.list.useQuery();
   const { selectedSucursalId, setSelectedSucursalId } = useSucursalSelection();
 
-  if (!me || me.sucursalId || !sucursales || sucursales.length === 0) return null;
+  if (!me || me.sucursalId || me.role === "DEPOSITO" || !sucursales || sucursales.length === 0) {
+    return null;
+  }
 
   return (
     <Select
