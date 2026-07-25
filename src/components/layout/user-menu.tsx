@@ -1,5 +1,6 @@
 "use client";
 
+import { ChevronsUpDown, LogOut } from "lucide-react";
 import { logout } from "@/app/actions/auth";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
@@ -44,13 +45,17 @@ export function UserMenu({ name, email, role }: { name: string; email: string; r
             {ROLE_LABELS[role] ?? role}
           </span>
         </div>
+        <ChevronsUpDown className="ml-auto size-4 text-muted-foreground group-data-[collapsible=icon]:hidden" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56">
         <DropdownMenuLabel className="truncate text-xs text-muted-foreground">
           {email}
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
-        <DropdownMenuItem onSelect={() => logout()}>Cerrar sesión</DropdownMenuItem>
+        <DropdownMenuItem variant="destructive" onSelect={() => logout()}>
+          <LogOut />
+          Cerrar sesión e iniciar con otro usuario
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );
