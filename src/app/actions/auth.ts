@@ -34,8 +34,12 @@ export async function login(_prevState: LoginState, formData: FormData): Promise
   redirect("/");
 }
 
+// No usa redirect() acá adentro: esta función se llama directo desde un
+// manejador de evento (clic en el menú), no desde un <form action>, y
+// redirect() dentro de una Server Action invocada así no navega bien — el
+// componente que llama tiene que redirigir con useRouter después de esperar
+// esta promesa.
 export async function logout() {
   const supabase = await createClient();
   await supabase.auth.signOut();
-  redirect("/login");
 }

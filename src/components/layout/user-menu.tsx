@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { ChevronsUpDown, LogOut } from "lucide-react";
 import { logout } from "@/app/actions/auth";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -26,12 +27,19 @@ const ROLE_LABELS: Record<string, string> = {
 };
 
 export function UserMenu({ name, email, role }: { name: string; email: string; role: string }) {
+  const router = useRouter();
   const initials = name
     .split(" ")
     .map((part) => part[0])
     .slice(0, 2)
     .join("")
     .toUpperCase();
+
+  async function handleLogout() {
+    await logout();
+    router.push("/login");
+    router.refresh();
+  }
 
   return (
     <DropdownMenu>
@@ -52,7 +60,7 @@ export function UserMenu({ name, email, role }: { name: string; email: string; r
           {email}
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
-        <DropdownMenuItem variant="destructive" onSelect={() => logout()}>
+        <DropdownMenuItem variant="destructive" onSelect={() => void handleLogout()}>
           <LogOut />
           Cerrar sesión e iniciar con otro usuario
         </DropdownMenuItem>
