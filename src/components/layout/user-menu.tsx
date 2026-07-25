@@ -1,17 +1,10 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { ChevronsUpDown, LogOut } from "lucide-react";
+import { LogOut } from "lucide-react";
 import { logout } from "@/app/actions/auth";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { Button } from "@/components/ui/button";
 import { SidebarMenuButton } from "@/components/ui/sidebar";
 
 const ROLE_LABELS: Record<string, string> = {
@@ -26,6 +19,11 @@ const ROLE_LABELS: Record<string, string> = {
   VENDEDOR_ALMAFUERTE: "Vendedor Almafuerte",
 };
 
+// Sin dropdown a propósito: un menú desplegable acá quedaba anidado dentro
+// del Sheet modal del sidebar en mobile (ambos de @base-ui) y el toque en
+// el trigger terminaba navegando a una página rota en vez de abrir el
+// menú, incluso probando modal={false}. Botón directo, sin overlays
+// anidados — así no hay ambigüedad posible.
 export function UserMenu({ name, email, role }: { name: string; email: string; role: string }) {
   const router = useRouter();
   const initials = name
@@ -42,34 +40,29 @@ export function UserMenu({ name, email, role }: { name: string; email: string; r
   }
 
   return (
-    // modal={false}: en mobile este menú vive adentro del Sheet del sidebar
-    // (también modal) — dos overlays modales anidados compiten por el
-    // manejo de "click afuera", y el toque en el trigger terminaba
-    // cerrando el Sheet en vez de abrir el menú (esto es lo que el usuario
-    // reportó como "se abre otra página y no carga").
-    <DropdownMenu modal={false}>
-      <DropdownMenuTrigger render={<SidebarMenuButton size="lg" />}>
+    <div className="flex items-center gap-1">
+      <SidebarMenuButton size="lg" className="cursor-default hover:bg-transparent" tabIndex={-1}>
         <Avatar className="size-7">
           <AvatarFallback className="text-xs">{initials}</AvatarFallback>
         </Avatar>
         <div className="flex flex-col text-left leading-tight group-data-[collapsible=icon]:hidden">
           <span className="text-sm font-medium">{name}</span>
-          <span className="text-xs text-muted-foreground">
-            {ROLE_LABELS[role] ?? role}
+          <span className="truncate text-xs text-muted-foreground">
+            {ROLE_LABELS[role] ?? role} · {email}
           </span>
         </div>
-        <ChevronsUpDown className="ml-auto size-4 text-muted-foreground group-data-[collapsible=icon]:hidden" />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-56">
-        <DropdownMenuLabel className="truncate text-xs text-muted-foreground">
-          {email}
-        </DropdownMenuLabel>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem variant="destructive" onSelect={() => void handleLogout()}>
-          <LogOut />
-          Cerrar sesión e iniciar con otro usuario
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+      </SidebarMenuButton>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-sm"
+        className="shrink-0 text-destructive hover:text-destructive group-data-[collapsible=icon]:hidden"
+        title="Cerrar sesión"
+        onClick={() => void handleLogout()}
+      >
+        <LogOut />
+        <span className="sr-only">Cerrar sesión</span>
+      </Button>
+    </div>
   );
 }
