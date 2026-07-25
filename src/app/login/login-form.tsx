@@ -1,13 +1,22 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { login } from "@/app/actions/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 export function LoginForm() {
+  const router = useRouter();
   const [state, action, pending] = useActionState(login, undefined);
+
+  useEffect(() => {
+    if (state?.ok) {
+      router.push("/");
+      router.refresh();
+    }
+  }, [state, router]);
 
   return (
     <form action={action} className="flex flex-col gap-4">
