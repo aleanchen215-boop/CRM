@@ -77,6 +77,10 @@ Observaciones de preparación: si el cliente pide algo especial sobre cómo prep
 
 Cancelar un pedido: si el cliente dice que ya no quiere el pedido que hizo, preguntale UNA vez para confirmar ("¿confirmás que cancelamos el pedido?") y en cuanto te diga que sí, llamá a cancelar_pedido de inmediato, en ese mismo turno. No la llames por dudas ambiguas — si no está claro que quiere cancelar del todo, preguntá primero.
 
+Demoras y reclamos:
+- Si preguntan en general cuánto tardan los pedidos (todavía no pidió nada en esta conversación, o es una pregunta genérica tipo "¿cuánto tardan?", "¿cuánto demoran los envíos?"), respondé directo con el tiempo estimado, sin escalar ni llamar ninguna herramienta: retirando por el local, unos 20 minutos; por envío, la demora es de mínimo 30 minutos.
+- Si el cliente YA hizo un pedido en esta conversación (ya llamaste a crear_pedido) y pregunta puntualmente por la demora de ESE pedido (ej. "¿cuánto falta?", "¿ya sale el mío?"), o hace un reclamo porque algo salió mal (llegó frío, faltó algo, tardó de más, vino equivocado, etc.): NO intentes resolverlo vos, no inventes una explicación ni des un tiempo estimado nuevo — llamá a la herramienta escalar_a_empleado de inmediato y avisale en tu respuesta que lo vas a derivar con alguien del local para que lo ayude (variá cómo lo decís, no repitas siempre la misma frase). Después de escalar no seguís respondiendo sobre ese pedido — un empleado se encarga a partir de ahí.
+
 Reglas para no trabarte en un loop de saludos (esto es CRÍTICO):
 - Mirá siempre el ÚLTIMO mensaje del cliente en la conversación y respondé específicamente a ESO, no un saludo genérico. Si ya se saludaron antes en esta conversación, no vuelvas a saludar — andá directo al punto.
 - Si el cliente ya dijo qué quiere pedir (productos, "quiero pedir", "para retirar", etc.), NUNCA respondas con algo genérico tipo "¿en qué puedo ayudarte?" — seguí el flujo de toma de pedido del punto anterior a partir de lo que ya te dijo.
@@ -110,6 +114,24 @@ const SEARCH_PROMOTIONS_TOOL: ChatCompletionTool = {
     parameters: { type: "object", properties: {} },
   },
 };
+
+const ESCALATE_TOOL: ChatCompletionTool = {
+  type: "function",
+  function: {
+    name: "escalar_a_empleado",
+    description:
+      "Deriva la conversación a un empleado humano y apaga las respuestas automáticas de acá en más. Usar SOLO cuando el cliente hace un reclamo sobre un pedido (algo salió mal) o pregunta puntualmente por la demora de un pedido que YA hizo — nunca para una pregunta general de cuánto tardan los pedidos en general (esa se responde directo con el tiempo estimado, sin esta herramienta).",
+    parameters: { type: "object", properties: {}, required: [] },
+  },
+};
+
+async function handleEscalateToHuman(conversationId: string): Promise<string> {
+  await prisma.conversation.update({
+    where: { id: conversationId },
+    data: { aiActive: false, status: "PENDIENTE" },
+  });
+  return "Conversación derivada a un empleado — la IA queda apagada para este chat hasta que alguien la reactive.";
+}
 
 // Sin tildes y en minúscula, para que "jamón" matchee "Jamon" y viceversa —
 // Postgres `contains` no ignora acentos por sí solo.
@@ -242,6 +264,7 @@ export async function generateAiReply(
   history: ChatTurn[],
   customerId: string,
   sucursalId: string,
+  conversationId: string,
 ): Promise<{ text: string; costTokens: number }> {
   const systemPrompt = await getActiveSystemPrompt();
 
@@ -264,6 +287,7 @@ export async function generateAiReply(
         CREATE_ORDER_TOOL,
         MODIFY_ORDER_TOOL,
         CANCEL_ORDER_TOOL,
+        ESCALATE_TOOL,
       ],
       // Bajo (no 0) para que siga las reglas del prompt de forma consistente
       // — a temperatura default el modelo variaba mucho de una corrida a
@@ -307,6 +331,8 @@ export async function generateAiReply(
           output = await handleModifyOrder(customerId, sucursalId, args);
         } else if (call.function.name === "cancelar_pedido") {
           output = await handleCancelOrder(customerId, sucursalId);
+        } else if (call.function.name === "escalar_a_empleado") {
+          output = await handleEscalateToHuman(conversationId);
         }
       } catch (error) {
         output = error instanceof Error ? error.message : "[]";

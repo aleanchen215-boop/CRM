@@ -29,7 +29,7 @@ async function respondWithAi(
     }));
 
   try {
-    const { text, costTokens } = await generateAiReply(history, customerId, sucursalId);
+    const { text, costTokens } = await generateAiReply(history, customerId, sucursalId, conversationId);
     const whatsappMessageId = await sendWhatsappTextMessage(customerWhatsapp, text, sucursalId);
 
     const message = await prisma.message.create({
@@ -116,7 +116,14 @@ export async function POST(request: Request) {
 
       await prisma.conversation.update({
         where: { id: conversation.id },
-        data: { lastMessageAt: new Date(), status: "ABIERTA" },
+        data: {
+          lastMessageAt: new Date(),
+          // Si la IA ya está apagada acá (un empleado la tomó, o se
+          // escaló por un reclamo/demora), no la reabrimos solo porque el
+          // cliente mandó otro mensaje — que un empleado la cierre o la
+          // reactive a mano en vez de perder el aviso de "necesita atención".
+          ...(conversation.aiActive ? { status: "ABIERTA" as const } : {}),
+        },
       });
 
       // Generar y mandar la respuesta después de contestarle a YCloud, para
