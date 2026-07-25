@@ -1,6 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { orderInputSchema, orderStatusUpdateSchema } from "@/lib/validation/order";
+import { orderInputSchema, orderStatusUpdateSchema, getAllowedPaymentMethods } from "@/lib/validation/order";
 import { requirePermission, router } from "@/server/trpc/trpc";
 import { resolveSucursalFilter, resolveSucursalForWrite } from "@/server/trpc/sucursal";
 import { sendWhatsappTextMessage } from "@/server/integrations/whatsapp/client";
@@ -67,6 +67,14 @@ export const ordersRouter = router({
   create: requirePermission("orders:write")
     .input(orderInputSchema)
     .mutation(async ({ ctx, input }) => {
+      const allowedMethods = getAllowedPaymentMethods(input.channel, input.channelSource);
+      if (!allowedMethods.includes(input.method)) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Ese método de pago no corresponde a este canal.",
+        });
+      }
+
       const sucursalId = resolveSucursalForWrite(ctx.user, input.sucursalId);
       const order = await createOrder({ ...input, sucursalId, employeeId: ctx.user.id });
       return toNumber(order);

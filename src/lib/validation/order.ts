@@ -5,14 +5,41 @@ export const paymentMethodValues = [
   "EFECTIVO",
   "TRANSFERENCIA",
   "OTRO",
+  "PREPAGO",
+  "VISA",
+  "PAYWAY",
 ] as const;
 
 export const salesChannelValues = ["MOSTRADOR", "DELIVERY", "APPS"] as const;
 
-// Plataforma de origen dentro del canal "Apps" (PedidosYa, Rappi, etc.).
-// Texto libre por ahora — se vuelve un valor fijo (o se autocompleta) el
-// día que exista integración automática con cada plataforma.
-export const appsSourceSuggestions = ["PedidosYa", "Rappi"] as const;
+// Plataforma de origen dentro del canal "Apps" — a diferencia de otras
+// sucursales, el método de pago depende de cuál es exactamente (Rappi solo
+// acepta Visa, PedidosYa ya cobró en la app), así que son valores fijos, no
+// texto libre.
+export const appsSourceValues = ["PedidosYa", "Rappi"] as const;
+// Se mantiene para no romper imports existentes.
+export const appsSourceSuggestions = appsSourceValues;
+
+// Qué métodos de pago tienen sentido según el canal (y, para Apps, la
+// plataforma puntual) — cada uno cobra distinto en la práctica:
+// - Mostrador: efectivo en mano, o tarjeta por la terminal Payway del local.
+// - Delivery: efectivo al cadete, o link de Mercado Pago (queda como
+//   TRANSFERENCIA por motivos históricos, ver el enum).
+// - Apps/PedidosYa: la plataforma ya le cobró al cliente (prepago) o paga
+//   en efectivo al cadete de PedidosYa.
+// - Apps/Rappi: Rappi solo acepta Visa — no es una elección real.
+export function getAllowedPaymentMethods(
+  channel: (typeof salesChannelValues)[number],
+  channelSource?: string,
+): (typeof paymentMethodValues)[number][] {
+  if (channel === "MOSTRADOR") return ["EFECTIVO", "PAYWAY"];
+  if (channel === "DELIVERY") return ["EFECTIVO", "TRANSFERENCIA"];
+
+  // APPS
+  const source = channelSource?.trim().toLowerCase();
+  if (source === "rappi") return ["VISA"];
+  return ["PREPAGO", "EFECTIVO"];
+}
 
 export const orderStatusValues = [
   "PENDIENTE",

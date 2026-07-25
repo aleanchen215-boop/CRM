@@ -29,8 +29,11 @@ function isThisMonth(date: Date, thisMonth: string): boolean {
 const PAYMENT_METHOD_LABELS: Record<string, string> = {
   MERCADO_PAGO: "Mercado Pago",
   EFECTIVO: "Efectivo",
-  TRANSFERENCIA: "Transferencia",
+  TRANSFERENCIA: "Mercado Pago (link)",
   OTRO: "Otro",
+  PREPAGO: "Prepago",
+  VISA: "Visa",
+  PAYWAY: "Payway",
 };
 
 export const dashboardRouter = router({

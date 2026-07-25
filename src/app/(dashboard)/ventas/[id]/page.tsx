@@ -17,8 +17,11 @@ import { OrderCancelButton } from "@/components/orders/order-cancel-button";
 const METHOD_LABELS: Record<string, string> = {
   MERCADO_PAGO: "Mercado Pago",
   EFECTIVO: "Efectivo",
-  TRANSFERENCIA: "Transferencia",
+  TRANSFERENCIA: "Mercado Pago (link)",
   OTRO: "Otro",
+  PREPAGO: "Prepago",
+  VISA: "Visa",
+  PAYWAY: "Payway",
 };
 
 const CHANNEL_LABELS: Record<string, string> = {

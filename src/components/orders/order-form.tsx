@@ -4,7 +4,12 @@ import { useState } from "react";
 import { Controller, useFieldArray, useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 import { ArrowLeft, Plus, UserPlus } from "lucide-react";
-import { paymentMethodValues, salesChannelValues, type OrderInput } from "@/lib/validation/order";
+import {
+  paymentMethodValues,
+  salesChannelValues,
+  getAllowedPaymentMethods,
+  type OrderInput,
+} from "@/lib/validation/order";
 import type { OrderFormValues } from "@/components/orders/order-form-types";
 import { trpc } from "@/lib/trpc/client";
 import { formatCurrency } from "@/lib/format";
@@ -33,8 +38,11 @@ import { useSucursalSelection } from "@/components/layout/sucursal-context";
 const METHOD_LABELS: Record<(typeof paymentMethodValues)[number], string> = {
   MERCADO_PAGO: "Mercado Pago",
   EFECTIVO: "Efectivo",
-  TRANSFERENCIA: "Transferencia",
+  TRANSFERENCIA: "Mercado Pago (link)",
   OTRO: "Otro",
+  PREPAGO: "Prepago",
+  VISA: "Visa",
+  PAYWAY: "Payway",
 };
 
 const CHANNEL_LABELS: Record<(typeof salesChannelValues)[number], string> = {
@@ -134,10 +142,15 @@ export function OrderForm({
   // esté elegida arriba en el selector, si hay una.
   const needsSucursalPicker = Boolean(me && !me.sucursalId);
 
+  // Qué métodos de pago tienen sentido según el canal (y, en Apps, la
+  // plataforma) — Rappi solo tiene uno (Visa), así que ni se elige.
+  const allowedMethods = getAllowedPaymentMethods(channel, channelSource);
+  const methodLocked = allowedMethods.length === 1;
+
   const form = useForm<OrderFormValues>({
     defaultValues: {
       customerId: "",
-      method: "EFECTIVO",
+      method: allowedMethods[0],
       items: [emptyRow()],
       notes: "",
       shippingAddress: "",
@@ -308,26 +321,35 @@ export function OrderForm({
 
           <Field>
             <FieldLabel htmlFor="method">Método de pago</FieldLabel>
-            <Controller
-              control={form.control}
-              name="method"
-              render={({ field }) => (
-                <Select value={field.value} onValueChange={field.onChange}>
-                  <SelectTrigger id="method" className="w-full">
-                    <SelectValue>
-                      {(value: (typeof paymentMethodValues)[number]) => METHOD_LABELS[value]}
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    {paymentMethodValues.map((method) => (
-                      <SelectItem key={method} value={method}>
-                        {METHOD_LABELS[method]}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-            />
+            {methodLocked ? (
+              <Input
+                id="method"
+                disabled
+                value={METHOD_LABELS[allowedMethods[0]]}
+                className="disabled:opacity-100"
+              />
+            ) : (
+              <Controller
+                control={form.control}
+                name="method"
+                render={({ field }) => (
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <SelectTrigger id="method" className="w-full">
+                      <SelectValue>
+                        {(value: (typeof paymentMethodValues)[number]) => METHOD_LABELS[value]}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      {allowedMethods.map((method) => (
+                        <SelectItem key={method} value={method}>
+                          {METHOD_LABELS[method]}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+            )}
           </Field>
 
           <Field>

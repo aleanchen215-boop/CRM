@@ -425,10 +425,22 @@ enum OrderStatus {
 }
 
 enum PaymentMethod {
+  // No se usa en la práctica — el pago por Mercado Pago (link generado por
+  // la IA o elegido a mano en Delivery) se guarda como TRANSFERENCIA por
+  // motivos históricos. Se deja en el enum para no romper el tipo, pero no
+  // se ofrece como opción en ningún formulario.
   MERCADO_PAGO
   EFECTIVO
+  // "Pagado con Mercado Pago" en la práctica (nombre histórico) — dispara
+  // la generación del link de pago cuando lo elige la IA.
   TRANSFERENCIA
   OTRO
+  // Apps (PedidosYa): la plataforma ya le cobró al cliente.
+  PREPAGO
+  // Apps (Rappi): único método que aceptan, fijo — no elegible.
+  VISA
+  // Mostrador: terminal de pago con tarjeta que usa el local.
+  PAYWAY
 }
 
 enum SalesChannel {
