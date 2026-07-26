@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { trpc } from "@/lib/trpc/client";
-import { formatCurrency } from "@/lib/format";
+import { formatCurrency, formatScheduledLabel } from "@/lib/format";
 import { salesChannelValues } from "@/lib/validation/order";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -84,6 +84,11 @@ export default function VentasPage() {
                     {order.cancelRequestedByCustomerAt && (
                       <Badge variant="destructive" className="w-fit">
                         Cancelado por el cliente
+                      </Badge>
+                    )}
+                    {order.scheduledFor && (
+                      <Badge variant="outline" className="w-fit border-blue-500/60 text-blue-600 dark:text-blue-400">
+                        {formatScheduledLabel(order.scheduledFor, order.channel)}
                       </Badge>
                     )}
                     <div className="flex items-center justify-between text-muted-foreground">

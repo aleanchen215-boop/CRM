@@ -92,6 +92,9 @@ export const orderInputSchema = z.object({
   channelSource: z.string().trim().optional(),
   items: z.array(orderItemInputSchema).min(1, "Agregá al menos un producto"),
   notes: z.string().trim().max(500).optional(),
+  // Hora puntual pedida por el cliente para retirar/recibir el pedido (ej.
+  // "para las 21:30") — se muestra aparte en Ventas, no es una nota más.
+  scheduledFor: z.date().optional(),
   // Solo tiene sentido cuando channel = DELIVERY.
   shippingAddress: z.string().trim().optional(),
   // Solo hace falta si quien crea el pedido no está atado a una sucursal fija

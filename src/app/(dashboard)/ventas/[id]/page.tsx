@@ -4,7 +4,7 @@ import { use, useEffect } from "react";
 import Link from "next/link";
 import { ArrowLeft, Printer, TriangleAlert } from "lucide-react";
 import { trpc } from "@/lib/trpc/client";
-import { formatCurrency } from "@/lib/format";
+import { formatCurrency, formatScheduledLabel } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -141,6 +141,11 @@ export default function OrderDetailPage({
             </h1>
             <OrderStatusBadge status={order.status} />
             <PaymentStatusBadge method={order.method} payments={order.payments} />
+            {order.scheduledFor && (
+              <span className="rounded-full border border-blue-500/60 px-2 py-0.5 text-sm font-medium text-blue-600 dark:text-blue-400">
+                {formatScheduledLabel(order.scheduledFor, order.channel)}
+              </span>
+            )}
           </div>
           <p className="text-sm text-muted-foreground">
             {new Date(order.createdAt).toLocaleDateString("es-AR")} ·{" "}
@@ -265,6 +270,7 @@ export default function OrderDetailPage({
         {order.channel === "DELIVERY" && order.shippingAddress && (
           <p>Dirección: {order.shippingAddress}</p>
         )}
+        {order.scheduledFor && <p className="font-bold">{formatScheduledLabel(order.scheduledFor, order.channel)}</p>}
         <hr className="my-1 border-dashed border-black" />
         {order.items.map((item) => (
           <div key={item.id} className="mb-1">

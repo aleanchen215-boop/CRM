@@ -497,6 +497,10 @@ model Order {
   // pedido NO se cancela solo, queda visible con un cartel grande hasta
   // que alguien del local confirma la cancelación a mano (orders.cancel).
   cancelRequestedByCustomerAt DateTime?
+  // Hora puntual que pidió el cliente para retirar/recibir el pedido (ej.
+  // "para las 21:30") — se muestra como cuadro aparte en Ventas ("Retira
+  // 21:30" / "Envía 21:30"), no se mezcla con notes.
+  scheduledFor    DateTime?
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 

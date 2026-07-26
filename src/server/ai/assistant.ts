@@ -34,7 +34,7 @@ const DEFAULT_SYSTEM_PROMPT = `Sos quien atiende el WhatsApp de una pizzería qu
 Reglas de estilo y horario:
 - No llames al cliente por su nombre, ni uses símbolos raros o emojis en exceso (nada de emojis-número tipo 1️⃣2️⃣, ni robots 🤖, ni caracteres que no sean letras normales del español).
 - Formato de texto: esto es WhatsApp, no un chat con markdown. Para negrita usá UN solo asterisco de cada lado (*así*), NUNCA dos (**así** se ve mal, no lo hagas). Nunca uses tablas (con | y guiones), ni encabezados con #, ni bloques de código. Si necesitás listar cosas, usá líneas simples con "-", nada más.
-- Horario de atención: domingo a jueves de 19:00 a 23:00, viernes y sábado de 19:00 a 23:30.
+- Horario de atención: te lo indican más abajo en este mismo mensaje (depende de la sucursal) — usá ESE horario si te preguntan, no inventes ni uses otro.
 - Si te preguntan cómo estás, respondé simplemente "Bien, gracias" y seguí la charla con naturalidad.
 - Saludá preguntando cómo está solo en el primer mensaje del día en esa conversación — después no vuelvas a saludar.
 
@@ -70,6 +70,8 @@ Cómo tomar un pedido (seguí este orden, una pregunta a la vez, sin agobiar):
 4. En cuanto el cliente te dé el ÚLTIMO dato que faltaba según el punto 3 (ej. responde "transferencia", o dice cuánto paga en efectivo, o confirma que retira), hacé un resumen cortito de todo el pedido (productos y cantidades, retira/dirección, método de pago) y preguntale "¿confirmás?" o similar — esta es la ÚNICA confirmación extra que podés pedir, no agregues otra vuelta más.
 5. En cuanto el cliente confirme ("sí", "dale", "confirmo", etc.), llamá a crear_pedido INMEDIATAMENTE, en esa misma respuesta — no le escribas "ya se lo vas a pasar", "un momento" o "dale, ahora lo creo": llamá la herramienta ya, en el mismo turno. Nunca dejes la llamada para "el próximo mensaje", y no vuelvas a pedir otra confirmación ni reabras la conversación de productos/promos en este punto.
 6. Si crear_pedido te devuelve un link de pago, pasáselo tal cual al cliente en tu respuesta (nunca inventes ni repitas un link viejo).
+
+Hora puntual de retiro/entrega: si en algún momento del pedido el cliente pide una hora concreta para retirar o para que le llevemos el pedido (ej. "para las 21:30", "retiro a las 8 de la noche", "que llegue a las 20"), guardala en el campo horaProgramada de crear_pedido/modificar_pedido en formato 24hs HH:MM — NUNCA la pongas en observaciones, es un campo aparte. Esto es distinto de una pregunta genérica de cuánto tardan (ver "Demoras y reclamos" más abajo): acá el cliente te está dando él mismo un horario, no preguntando cuánto falta.
 
 Si el cliente pregunta si le vamos a avisar cuando el pedido esté listo (o pide que le avisen), respondé que sí, sin dudarlo — ese aviso se manda desde el local cuando corresponda, vos no tenés que hacer nada más ni llamar ninguna herramienta para eso, solo confirmarle que sí.
 
@@ -247,7 +249,7 @@ async function listPromotions(): Promise<
 // tiene sentido guardarlo en ai_settings porque depende de la hora exacta
 // en la que se genera cada respuesta, no es texto fijo).
 const BUSINESS_TIMEZONE = "America/Argentina/Buenos_Aires";
-function isWithinBusinessHours(date: Date): boolean {
+function isWithinBusinessHours(date: Date, sucursalSlug: string | null): boolean {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: BUSINESS_TIMEZONE,
     weekday: "short",
@@ -262,14 +264,26 @@ function isWithinBusinessHours(date: Date): boolean {
   const minutesNow = hour * 60 + minute;
 
   const isFriOrSat = weekday === "Fri" || weekday === "Sat";
-  const openMinutes = 19 * 60;
-  const closeMinutes = isFriOrSat ? 23 * 60 + 30 : 23 * 60;
-  return minutesNow >= openMinutes && minutesNow < closeMinutes;
+  const eveningOpen = 19 * 60;
+  const eveningClose = isFriOrSat ? 23 * 60 + 30 : 23 * 60;
+  const withinEvening = minutesNow >= eveningOpen && minutesNow < eveningClose;
+
+  // Almafuerte además abre al mediodía de lunes a sábado (Paracao no).
+  if (sucursalSlug === "almafuerte") {
+    const isMonToSat = weekday !== "Sun";
+    const lunchOpen = 11 * 60;
+    const lunchClose = 14 * 60 + 30;
+    const withinLunch = isMonToSat && minutesNow >= lunchOpen && minutesNow < lunchClose;
+    return withinEvening || withinLunch;
+  }
+
+  return withinEvening;
 }
 
-async function getActiveSystemPrompt(): Promise<string> {
+async function getActiveSystemPrompt(sucursalId: string): Promise<string> {
   const settings = await prisma.aiSettings.findFirst({ orderBy: { activeSince: "desc" } });
   const base = settings?.systemPrompt ?? DEFAULT_SYSTEM_PROMPT;
+  const sucursal = await prisma.sucursal.findUnique({ where: { id: sucursalId }, select: { slug: true } });
 
   // El modelo gratuito no es confiable llamando a buscar_promociones por su
   // cuenta (lo ignora incluso con instrucción explícita), así que en vez de
@@ -285,8 +299,17 @@ async function getActiveSystemPrompt(): Promise<string> {
     result = `${result}\n\nPromociones activas ahora mismo — SIEMPRE fijate si el pedido del cliente coincide con alguna de estas antes de cotizar productos sueltos, porque salen más baratas que comprar por separado:\n${promoText}`;
   }
 
-  if (!isWithinBusinessHours(new Date())) {
-    result += `\n\nAVISO: ahora mismo es FUERA del horario de atención. Si todavía no se lo mencionaste en esta conversación, avisale al cliente en tu próxima respuesta (de forma natural, con tus propias palabras, no como una advertencia robótica) que el horario de atención es domingo a jueves de 19 a 23hs y viernes y sábado de 19 a 23:30hs — pero aclarale que puede hacer su pedido igual ahora mismo, sin problema. Si ya se lo dijiste antes en esta misma conversación, no lo repitas de nuevo.`;
+  // El horario depende de la sucursal (Almafuerte también abre al mediodía)
+  // — se inyecta acá como dato fijo del pedido en vez de dejarlo hardcodeado
+  // en el texto base, que es el mismo para las dos sucursales.
+  const horario =
+    sucursal?.slug === "almafuerte"
+      ? "lunes a sábado de 11 a 14:30hs al mediodía, y domingo a jueves de 19 a 23hs y viernes y sábado de 19 a 23:30hs por la noche"
+      : "domingo a jueves de 19 a 23hs y viernes y sábado de 19 a 23:30hs";
+  result += `\n\nHorario de atención de esta sucursal: ${horario}. Si el cliente pregunta el horario, respondé con este exacto — no menciones otro.`;
+
+  if (!isWithinBusinessHours(new Date(), sucursal?.slug ?? null)) {
+    result += `\n\nAVISO: ahora mismo es FUERA de ese horario. Si todavía no se lo mencionaste en esta conversación, avisale al cliente en tu próxima respuesta (de forma natural, con tus propias palabras, no como una advertencia robótica) — pero aclarale que puede hacer su pedido igual ahora mismo, sin problema. Si ya se lo dijiste antes en esta misma conversación, no lo repitas de nuevo.`;
   }
 
   return result;
@@ -300,7 +323,7 @@ export async function generateAiReply(
   sucursalId: string,
   conversationId: string,
 ): Promise<{ text: string; costTokens: number }> {
-  const systemPrompt = await getActiveSystemPrompt();
+  const systemPrompt = await getActiveSystemPrompt(sucursalId);
 
   const messages: ChatCompletionMessageParam[] = [
     { role: "system", content: systemPrompt },

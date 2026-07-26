@@ -10,6 +10,7 @@ import {
   updatePendingOrderChannel,
   updatePendingOrderNotes,
   updatePendingOrderPayment,
+  updatePendingOrderSchedule,
 } from "@/server/orders/create-order";
 import { createMercadoPagoPreference } from "@/server/integrations/mercadopago/client";
 import type { OrderInput } from "@/lib/validation/order";
@@ -81,6 +82,11 @@ export const CREATE_ORDER_TOOL: ChatCompletionTool = {
           description:
             "Pedidos especiales del cliente sobre la preparación (ej. \"bien dorada\", \"sin cebolla\", \"cortada en 8\"). SOLO si el cliente dice algo así explícitamente — no inventes ni asumas nada. Omitir si no dijo nada especial.",
         },
+        horaProgramada: {
+          type: "string",
+          description:
+            "SOLO si el cliente pide una hora puntual para retirar o para que le llevemos el pedido (ej. \"para las 21:30\", \"retiro a las 8 de la noche\", \"que llegue a las 20\"). Formato 24hs HH:MM (ej. \"21:30\", \"20:00\"). Esto NO es lo mismo que una pregunta de \"cuánto tardan\" — es cuando el cliente da un horario concreto. Omitir si no pidió ninguna hora en particular (se prepara/envía normal, apenas esté listo).",
+        },
       },
       required: ["canal", "items"],
     },
@@ -110,6 +116,23 @@ const businessDayFormatter = new Intl.DateTimeFormat("en-CA", {
 });
 function isSameBusinessDay(a: Date, b: Date): boolean {
   return businessDayFormatter.format(a) === businessDayFormatter.format(b);
+}
+
+// Convierte la hora HH:MM que dio el modelo (siempre referida al día de hoy,
+// hora del negocio) en un instante real — Buenos Aires no tiene horario de
+// verano, así que el offset fijo -03:00 alcanza. Devuelve null si no viene o
+// no tiene el formato esperado, para no guardar basura.
+function parseScheduledTime(hhmm: string | undefined): Date | null {
+  if (!hhmm?.trim()) return null;
+  const match = hhmm.trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return null;
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (hour > 23 || minute > 59) return null;
+
+  const today = businessDayFormatter.format(new Date());
+  const padded = `${hour.toString().padStart(2, "0")}:${minute.toString().padStart(2, "0")}`;
+  return new Date(`${today}T${padded}:00-03:00`);
 }
 
 function findBestMatch<T>(items: T[], name: (item: T) => string, query: string): T | undefined {
@@ -171,6 +194,7 @@ interface CreateOrderArgs {
     sabores?: string[];
   }>;
   observaciones?: string;
+  horaProgramada?: string;
 }
 
 type ItemArg = { nombre: string; cantidad?: number; sabores?: string[]; mitad2?: string };
@@ -331,6 +355,7 @@ export async function handleCreateOrder(
     shippingAddress: args.canal === "DELIVERY" ? args.direccion : undefined,
     deliveryFee,
     notes: args.observaciones?.trim() || undefined,
+    scheduledFor: parseScheduledTime(args.horaProgramada) ?? undefined,
     items: orderItems,
   });
 
@@ -340,24 +365,27 @@ export async function handleCreateOrder(
   const reconciled = (await reconcilePromotions(order.id)) ?? order;
   const total = Number(reconciled.total);
   const deliveryNote = deliveryFee ? ` (incluye $${deliveryFee.toLocaleString("es-AR")} de envío)` : "";
+  const scheduleNote = reconciled.scheduledFor
+    ? ` Anotado para las ${reconciled.scheduledFor.toLocaleTimeString("es-AR", { timeZone: BUSINESS_TIMEZONE, hour: "2-digit", minute: "2-digit" })}hs.`
+    : "";
 
   if (metodoPago === "TRANSFERENCIA") {
     const preference = await createMercadoPagoPreference(order.id, total);
     if (preference) {
-      return `Pedido creado (total $${total.toLocaleString("es-AR")}${deliveryNote}). Pasale este link de pago al cliente para que transfiera con Mercado Pago: ${preference.initPoint}`;
+      return `Pedido creado (total $${total.toLocaleString("es-AR")}${deliveryNote}).${scheduleNote} Pasale este link de pago al cliente para que transfiera con Mercado Pago: ${preference.initPoint}`;
     }
-    return `Pedido creado (total $${total.toLocaleString("es-AR")}${deliveryNote}). Todavía no está configurado Mercado Pago, así que avisale al cliente que le vas a pasar los datos para transferir por separado.`;
+    return `Pedido creado (total $${total.toLocaleString("es-AR")}${deliveryNote}).${scheduleNote} Todavía no está configurado Mercado Pago, así que avisale al cliente que le vas a pasar los datos para transferir por separado.`;
   }
 
   if (args.canal === "MOSTRADOR") {
-    return `Pedido creado (total $${total.toLocaleString("es-AR")}) para retirar por el local. Paga ahí, no hace falta preguntar nada más de pago.`;
+    return `Pedido creado (total $${total.toLocaleString("es-AR")}) para retirar por el local.${scheduleNote} Paga ahí, no hace falta preguntar nada más de pago.`;
   }
 
   if (args.pagaCon && args.pagaCon > total) {
-    return `Pedido creado (total $${total.toLocaleString("es-AR")}${deliveryNote}). El cliente paga con $${args.pagaCon.toLocaleString("es-AR")}, hay que llevarle $${(args.pagaCon - total).toLocaleString("es-AR")} de vuelto.`;
+    return `Pedido creado (total $${total.toLocaleString("es-AR")}${deliveryNote}).${scheduleNote} El cliente paga con $${args.pagaCon.toLocaleString("es-AR")}, hay que llevarle $${(args.pagaCon - total).toLocaleString("es-AR")} de vuelto.`;
   }
 
-  return `Pedido creado (total $${total.toLocaleString("es-AR")}${deliveryNote}), paga en efectivo sin vuelto.`;
+  return `Pedido creado (total $${total.toLocaleString("es-AR")}${deliveryNote}),${scheduleNote} paga en efectivo sin vuelto.`;
 }
 
 export const MODIFY_ORDER_TOOL: ChatCompletionTool = {
@@ -452,6 +480,11 @@ export const MODIFY_ORDER_TOOL: ChatCompletionTool = {
           description:
             "Pedidos especiales nuevos sobre la preparación que el cliente menciona ahora (ej. \"bien dorada\"). Se suman a las que ya hubiera, no las reemplazan. Omitir si no dijo nada especial en este mensaje.",
         },
+        horaProgramada: {
+          type: "string",
+          description:
+            "Solo si el cliente ahora pide (o cambia) una hora puntual para retirar/recibir el pedido. Formato 24hs HH:MM (ej. \"21:30\"). Omitir si no lo menciona en este mensaje.",
+        },
       },
       required: [],
     },
@@ -466,6 +499,7 @@ interface ModifyOrderArgs {
   metodoPago?: "EFECTIVO" | "TRANSFERENCIA";
   pagaCon?: number;
   observaciones?: string;
+  horaProgramada?: string;
 }
 
 export async function handleModifyOrder(
@@ -615,6 +649,11 @@ export async function handleModifyOrder(
     await updatePendingOrderNotes(order.id, args.observaciones.trim());
   }
 
+  const scheduledFor = parseScheduledTime(args.horaProgramada);
+  if (scheduledFor) {
+    await updatePendingOrderSchedule(order.id, scheduledFor);
+  }
+
   const finalOrder = await prisma.order.findUnique({ where: { id: order.id } });
   if (!finalOrder) return "Hubo un problema actualizando el pedido, reintentá.";
 
@@ -622,16 +661,19 @@ export async function handleModifyOrder(
   const deliveryNote = finalOrder.deliveryFee
     ? ` (incluye $${Number(finalOrder.deliveryFee).toLocaleString("es-AR")} de envío a ${finalOrder.shippingAddress})`
     : "";
+  const scheduleNote = finalOrder.scheduledFor
+    ? ` Anotado para las ${finalOrder.scheduledFor.toLocaleTimeString("es-AR", { timeZone: BUSINESS_TIMEZONE, hour: "2-digit", minute: "2-digit" })}hs.`
+    : "";
 
   if (finalOrder.method === "TRANSFERENCIA") {
     const preference = await createMercadoPagoPreference(finalOrder.id, total);
     if (preference) {
-      return `Pedido actualizado (nuevo total $${total.toLocaleString("es-AR")}${deliveryNote}). Pasale este link de pago al cliente para que transfiera con Mercado Pago: ${preference.initPoint}`;
+      return `Pedido actualizado (nuevo total $${total.toLocaleString("es-AR")}${deliveryNote}).${scheduleNote} Pasale este link de pago al cliente para que transfiera con Mercado Pago: ${preference.initPoint}`;
     }
-    return `Pedido actualizado (nuevo total $${total.toLocaleString("es-AR")}${deliveryNote}). Todavía no está configurado Mercado Pago.`;
+    return `Pedido actualizado (nuevo total $${total.toLocaleString("es-AR")}${deliveryNote}).${scheduleNote} Todavía no está configurado Mercado Pago.`;
   }
 
-  return `Pedido actualizado. Nuevo total: $${total.toLocaleString("es-AR")}${deliveryNote}, paga en efectivo.`;
+  return `Pedido actualizado. Nuevo total: $${total.toLocaleString("es-AR")}${deliveryNote}, paga en efectivo.${scheduleNote}`;
 }
 
 export const CANCEL_ORDER_TOOL: ChatCompletionTool = {

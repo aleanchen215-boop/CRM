@@ -252,6 +252,7 @@ export async function createOrder(input: CreateOrderInput) {
         shippingAddress: input.channel === "DELIVERY" ? input.shippingAddress : undefined,
         deliveryFee,
         notes: input.notes,
+        scheduledFor: input.scheduledFor,
         employeeId: input.employeeId,
         items: { createMany: { data: itemsData } },
         invoice: { create: { type: "INTERNO", status: "EMITIDO" } },
@@ -422,6 +423,15 @@ export async function updatePendingOrderNotes(orderId: string, note: string) {
   const notes = order.notes ? `${order.notes}; ${note}` : note;
 
   return prisma.order.update({ where: { id: orderId }, data: { notes } });
+}
+
+// Guarda/cambia la hora puntual que el cliente pidió para retirar o recibir
+// el pedido (ej. "para las 21:30"). Devuelve null si ya no se puede tocar.
+export async function updatePendingOrderSchedule(orderId: string, scheduledFor: Date) {
+  const order = await prisma.order.findUnique({ where: { id: orderId } });
+  if (!order || !isModifiable(order.status)) return null;
+
+  return prisma.order.update({ where: { id: orderId }, data: { scheduledFor } });
 }
 
 // Cancela un pedido PENDIENTE o CONFIRMADO (ej. el cliente avisa por
