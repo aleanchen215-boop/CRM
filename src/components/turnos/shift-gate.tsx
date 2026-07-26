@@ -3,6 +3,7 @@
 import { trpc } from "@/lib/trpc/client";
 import { isShiftRole } from "@/lib/shift-roles";
 import { AbrirTurnoCard } from "@/components/turnos/abrir-turno-card";
+import { LogoutButton } from "@/components/layout/logout-button";
 import type { UserRole } from "@/generated/prisma/enums";
 
 // Bloquea el sistema entero (sidebar incluido) hasta que se abra el turno
@@ -32,6 +33,10 @@ export function ShiftGate({ role, children }: { role: UserRole; children: React.
         <div className="flex w-full max-w-sm flex-col gap-4">
           <p className="text-center text-lg font-semibold">Abrí tu turno para empezar</p>
           <AbrirTurnoCard />
+          {/* Después de cerrar un turno el próximo suele ser recién al otro
+              día — conviene poder cerrar sesión directo desde acá en vez de
+              tener que abrir un turno para llegar al menú y recién ahí salir. */}
+          <LogoutButton variant="full" className="self-center" />
         </div>
       </div>
     );

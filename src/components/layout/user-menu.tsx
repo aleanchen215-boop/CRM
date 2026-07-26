@@ -1,11 +1,8 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { LogOut } from "lucide-react";
-import { logout } from "@/app/actions/auth";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Button } from "@/components/ui/button";
 import { SidebarMenuButton } from "@/components/ui/sidebar";
+import { LogoutButton } from "@/components/layout/logout-button";
 
 const ROLE_LABELS: Record<string, string> = {
   ADMIN: "Administrador",
@@ -26,19 +23,12 @@ const ROLE_LABELS: Record<string, string> = {
 // menú, incluso probando modal={false}. Botón directo, sin overlays
 // anidados — así no hay ambigüedad posible.
 export function UserMenu({ name, email, role }: { name: string; email: string; role: string }) {
-  const router = useRouter();
   const initials = name
     .split(" ")
     .map((part) => part[0])
     .slice(0, 2)
     .join("")
     .toUpperCase();
-
-  async function handleLogout() {
-    await logout();
-    router.push("/login");
-    router.refresh();
-  }
 
   return (
     <div className="flex items-center gap-1">
@@ -53,17 +43,7 @@ export function UserMenu({ name, email, role }: { name: string; email: string; r
           </span>
         </div>
       </SidebarMenuButton>
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon-sm"
-        className="shrink-0 text-destructive hover:text-destructive group-data-[collapsible=icon]:hidden"
-        title="Cerrar sesión"
-        onClick={() => void handleLogout()}
-      >
-        <LogOut />
-        <span className="sr-only">Cerrar sesión</span>
-      </Button>
+      <LogoutButton className="group-data-[collapsible=icon]:hidden" />
     </div>
   );
 }
