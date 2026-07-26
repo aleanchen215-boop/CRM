@@ -9,6 +9,7 @@ import {
   handleCreateOrder,
   handleModifyOrder,
 } from "@/server/ai/create-order-tool";
+import { aliasDrinkBrands } from "@/server/ai/drink-aliases";
 
 // Vía OpenRouter (openrouter.ai) en vez de OpenAI directo, para poder usar
 // modelos gratuitos. La API es compatible con Chat Completions de OpenAI.
@@ -190,7 +191,7 @@ async function searchProducts(
   // más simple y más tolerante que armar el WHERE ideal en SQL.
   const products = await prisma.product.findMany({ take: 200, include: { category: true } });
 
-  const normalizedQuery = normalize(query);
+  const normalizedQuery = normalize(aliasDrinkBrands(query));
 
   // Muchos clientes abrevian el sabor con el SKU tal cual está cargado en
   // Productos (ej. "EP" por Entraña y Provoleta, "JQ" por Jamón y Queso) —

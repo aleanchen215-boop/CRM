@@ -13,6 +13,7 @@ import {
   updatePendingOrderSchedule,
 } from "@/server/orders/create-order";
 import { createMercadoPagoPreference } from "@/server/integrations/mercadopago/client";
+import { aliasDrinkBrands } from "@/server/ai/drink-aliases";
 import type { OrderInput } from "@/lib/validation/order";
 
 export const CREATE_ORDER_TOOL: ChatCompletionTool = {
@@ -152,9 +153,13 @@ function findProductMatch<T extends { name: string; sku: string | null }>(
   products: T[],
   query: string,
 ): T | undefined {
-  const normalizedQuery = normalize(query);
+  // "sprite"/"fanta" no existen como producto propio — se venden como
+  // Coca-Cola del tamaño pedido (instrucción del dueño), así que se
+  // resuelven acá mismo en vez de depender de que el modelo lo recuerde.
+  const aliasedQuery = aliasDrinkBrands(query);
+  const normalizedQuery = normalize(aliasedQuery);
   const skuMatch = products.find((product) => product.sku && normalize(product.sku) === normalizedQuery);
-  return skuMatch ?? findBestMatch(products, (p) => p.name, query);
+  return skuMatch ?? findBestMatch(products, (p) => p.name, aliasedQuery);
 }
 
 // El modelo a veces mete la cantidad adentro del texto de "nombre" (ej.
