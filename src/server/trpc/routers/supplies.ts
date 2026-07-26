@@ -140,6 +140,33 @@ export const suppliesRouter = router({
       });
     }),
 
+  // Suma cantidad a un insumo que ya existe (siempre ENTRADA) — pensado
+  // para Repartidor, que solo puede sumar stock, nunca crear/editar
+  // insumos ni sacar/ajustar cantidades (eso sigue siendo stock:write).
+  restock: requirePermission("stock:add")
+    .input(z.object({ supplyId: z.string(), quantity: z.coerce.number().int().positive() }))
+    .mutation(async ({ ctx, input }) => {
+      return ctx.prisma.$transaction(async (tx) => {
+        const supply = await tx.supply.findUnique({ where: { id: input.supplyId } });
+        if (!supply) throw new TRPCError({ code: "NOT_FOUND" });
+        assertSucursalAccess(ctx.user, supply.sucursalId);
+
+        await tx.supply.update({
+          where: { id: input.supplyId },
+          data: { quantity: supply.quantity + input.quantity },
+        });
+
+        return tx.supplyMovement.create({
+          data: {
+            supplyId: input.supplyId,
+            type: "ENTRADA",
+            quantity: input.quantity,
+            reason: "Reparto",
+          },
+        });
+      });
+    }),
+
   // Lista de compras rápida ("insumos faltantes"): cualquiera con acceso a
   // Stock puede anotar algo que se está por terminar, y tacharlo cuando ya
   // se compró. No pisa el modelo de Supply — es solo una nota.
@@ -161,7 +188,9 @@ export const suppliesRouter = router({
       return ctx.prisma.missingSupplyItem.create({ data: { text: input.text, sucursalId } });
     }),
 
-  missingResolve: requirePermission("stock:write")
+  // stock:add (no stock:write): Repartidor también puede marcar un
+  // faltante como ya llevado, sin poder anotar uno nuevo.
+  missingResolve: requirePermission("stock:add")
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const current = await ctx.prisma.missingSupplyItem.findUnique({ where: { id: input.id } });

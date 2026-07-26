@@ -18,11 +18,10 @@ export default function StockPage() {
   const { data: sucursales } = trpc.sucursales.list.useQuery();
   const { selectedSucursalId } = useSucursalSelection();
 
-  // Depósito (Juliana) es el único rol que ve las dos sucursales siempre
-  // separadas en secciones apiladas (una abajo de la otra, nunca una al
-  // lado de la otra) en vez de una tabla combinada con columna de
-  // sucursal — pidieron esto puntualmente para este rol.
-  const stackedBySucursal = me?.role === "DEPOSITO";
+  // Depósito y Repartidor ven las dos sucursales siempre separadas en
+  // secciones apiladas (una abajo de la otra, nunca una al lado de la
+  // otra) en vez de una tabla combinada con columna de sucursal.
+  const stackedBySucursal = me?.role === "DEPOSITO" || me?.role === "REPARTIDOR";
 
   return (
     <div className="flex flex-col gap-6">

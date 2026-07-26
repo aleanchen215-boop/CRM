@@ -11,6 +11,7 @@ const HOME_ROUTE_BY_ROLE: Partial<Record<UserRole, string>> = {
   VENDEDOR_ALMAFUERTE: "/ventas",
   DEPOSITO: "/stock",
   PRODUCTOR: "/stock",
+  REPARTIDOR: "/stock",
 };
 
 export function getHomeRoute(role: UserRole): string {

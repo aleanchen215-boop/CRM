@@ -13,6 +13,7 @@ const userRoleValues = [
   "PRODUCTOR",
   "VENDEDOR_PARACAO",
   "VENDEDOR_ALMAFUERTE",
+  "REPARTIDOR",
 ] as const;
 
 // VENDEDOR_PARACAO/VENDEDOR_ALMAFUERTE quedan atados a su sucursal

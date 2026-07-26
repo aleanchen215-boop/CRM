@@ -33,6 +33,7 @@ const ROLE_LABELS: Record<UserRole, string> = {
   PRODUCTOR: "Productor",
   VENDEDOR_PARACAO: "Vendedor Paracao",
   VENDEDOR_ALMAFUERTE: "Vendedor Almafuerte",
+  REPARTIDOR: "Repartidor",
 };
 
 const ROLE_OPTIONS = Object.keys(ROLE_LABELS) as UserRole[];

@@ -24,7 +24,14 @@ export function SucursalSwitcher() {
   const { data: sucursales } = trpc.sucursales.list.useQuery();
   const { selectedSucursalId, setSelectedSucursalId } = useSucursalSelection();
 
-  if (!me || me.sucursalId || me.role === "DEPOSITO" || !sucursales || sucursales.length === 0) {
+  if (
+    !me ||
+    me.sucursalId ||
+    me.role === "DEPOSITO" ||
+    me.role === "REPARTIDOR" ||
+    !sucursales ||
+    sucursales.length === 0
+  ) {
     return null;
   }
 

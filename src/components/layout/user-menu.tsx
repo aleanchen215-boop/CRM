@@ -17,6 +17,7 @@ const ROLE_LABELS: Record<string, string> = {
   PRODUCTOR: "Productor",
   VENDEDOR_PARACAO: "Vendedor Paracao",
   VENDEDOR_ALMAFUERTE: "Vendedor Almafuerte",
+  REPARTIDOR: "Repartidor",
 };
 
 // Sin dropdown a propósito: un menú desplegable acá quedaba anidado dentro

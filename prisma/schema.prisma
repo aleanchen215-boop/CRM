@@ -52,6 +52,11 @@ enum UserRole {
   // ninguna sucursal en particular).
   VENDEDOR_PARACAO
   VENDEDOR_ALMAFUERTE
+  // Solo entra a Stock (ambas sucursales, apiladas como Depósito) — a
+  // diferencia de Depósito puede sumar cantidad a un insumo existente y
+  // marcar un faltante como ya llevado, pero no crear/editar insumos ni
+  // hacer salidas/ajustes.
+  REPARTIDOR
 }
 
 model User {

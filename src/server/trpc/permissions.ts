@@ -27,7 +27,19 @@ export const PERMISSIONS = {
   // esto (stock y faltantes) de las dos sucursales; el vendedor de cada
   // sucursal solo ve la suya (queda resuelto por su User.sucursalId, no acá).
   "stock:write": ["ADMIN"],
-  "stock:read": ["ADMIN", "DEPOSITO", "SUPERVISOR", "PRODUCTOR", "VENDEDOR_PARACAO", "VENDEDOR_ALMAFUERTE"],
+  "stock:read": [
+    "ADMIN",
+    "DEPOSITO",
+    "SUPERVISOR",
+    "PRODUCTOR",
+    "VENDEDOR_PARACAO",
+    "VENDEDOR_ALMAFUERTE",
+    "REPARTIDOR",
+  ],
+  // Acción acotada para Repartidor: sumar cantidad a un insumo que ya
+  // existe (nunca crear/editar/sacar) y marcar un faltante como ya
+  // llevado — no es lo mismo que stock:write completo.
+  "stock:add": ["ADMIN", "REPARTIDOR"],
   "automations:write": ["ADMIN"],
   "reports:read": ["ADMIN", "VENDEDOR", "SUPERVISOR"],
   "users:manage": ["ADMIN"],

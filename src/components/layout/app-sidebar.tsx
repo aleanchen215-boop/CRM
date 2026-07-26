@@ -70,7 +70,15 @@ const NAV_ITEMS = [
     href: "/stock",
     label: "Stock",
     icon: Boxes,
-    roles: ["ADMIN", "DEPOSITO", "SUPERVISOR", "PRODUCTOR", "VENDEDOR_PARACAO", "VENDEDOR_ALMAFUERTE"],
+    roles: [
+      "ADMIN",
+      "DEPOSITO",
+      "SUPERVISOR",
+      "PRODUCTOR",
+      "VENDEDOR_PARACAO",
+      "VENDEDOR_ALMAFUERTE",
+      "REPARTIDOR",
+    ],
   },
   {
     href: "/ia",

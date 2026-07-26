@@ -13,7 +13,12 @@ import { useCanPerform } from "@/lib/use-can-perform";
 export function MissingSupplies({ sucursalId: fixedSucursalId }: { sucursalId?: string } = {}) {
   const [text, setText] = useState("");
   const utils = trpc.useUtils();
-  const canWrite = useCanPerform("stock:write");
+  const { data: me } = trpc.system.me.useQuery();
+  // Anotar un faltante nuevo sigue siendo solo Admin; marcarlo como ya
+  // llevado/comprado también lo puede hacer Repartidor (stock:add).
+  const canCreate = useCanPerform("stock:write");
+  const canResolve = useCanPerform("stock:add");
+  const resolveLabel = me?.role === "REPARTIDOR" ? "Llevado" : "Recibido";
   const { selectedSucursalId: globalSelectedSucursalId } = useSucursalSelection();
   // Si se pasa sucursalId explícito (ej. una sección fija de "Paracao"),
   // manda por sobre el selector global de arriba.
@@ -52,7 +57,7 @@ export function MissingSupplies({ sucursalId: fixedSucursalId }: { sucursalId?: 
         <CardTitle className="text-base font-medium">Insumos faltantes</CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
-        {canWrite && (
+        {canCreate && (
           <form onSubmit={handleSubmit} className="flex items-center gap-2">
             <Input
               placeholder="Ej: bolsas de muzzarella, cajas para empanadas…"
@@ -69,7 +74,7 @@ export function MissingSupplies({ sucursalId: fixedSucursalId }: { sucursalId?: 
             </Button>
           </form>
         )}
-        {canWrite && !selectedSucursalId && (
+        {canCreate && !selectedSucursalId && (
           <p className="text-xs text-muted-foreground">
             Elegí una sucursal arriba para poder anotar un faltante.
           </p>
@@ -92,7 +97,7 @@ export function MissingSupplies({ sucursalId: fixedSucursalId }: { sucursalId?: 
                     <span className="text-muted-foreground"> · {item.sucursal.name}</span>
                   )}
                 </span>
-                {canWrite && (
+                {canResolve && (
                   <Button
                     type="button"
                     size="sm"
@@ -101,7 +106,7 @@ export function MissingSupplies({ sucursalId: fixedSucursalId }: { sucursalId?: 
                     onClick={() => resolve.mutate({ id: item.id })}
                   >
                     <Check />
-                    Recibido
+                    {resolveLabel}
                   </Button>
                 )}
               </li>
