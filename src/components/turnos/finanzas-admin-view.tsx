@@ -1,10 +1,12 @@
 "use client";
 
 import { useState } from "react";
+import { toast } from "sonner";
 import { AlertTriangle } from "lucide-react";
 import { trpc } from "@/lib/trpc/client";
 import { formatCurrency } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -36,15 +38,18 @@ function daysAgoStr(days: number) {
   return d.toISOString().slice(0, 10);
 }
 
-// Vista de auditoría para Admin: cierres de turno de las dos sucursales
-// (con la diferencia contado vs. esperado bien visible) y los retiros a
-// caja fuerte, por fecha.
+// Vista de auditoría para Admin: saldo de la caja fuerte de cada
+// sucursal (con botón para vaciarla), cierres de turno (con la
+// diferencia contado vs. esperado bien visible) y los retiros a caja
+// fuerte, por fecha.
 export function FinanzasAdminView() {
   const [from, setFrom] = useState(daysAgoStr(29));
   const [to, setTo] = useState(todayStr());
   const [sucursalId, setSucursalId] = useState<string | undefined>(undefined);
+  const utils = trpc.useUtils();
 
   const { data: sucursales } = trpc.sucursales.list.useQuery();
+  const { data: saldos, isLoading: loadingSaldos } = trpc.turnos.listSaldosCajaFuerte.useQuery();
   const { data: turnos, isLoading: loadingTurnos } = trpc.turnos.listClosedTurnos.useQuery({
     from,
     to,
@@ -56,10 +61,55 @@ export function FinanzasAdminView() {
     sucursalId,
   });
 
+  const resetCaja = trpc.turnos.resetCajaFuerte.useMutation({
+    onSuccess: async () => {
+      toast.success("Caja fuerte en 0");
+      await utils.turnos.listSaldosCajaFuerte.invalidate();
+    },
+    onError: (error) => toast.error(error.message),
+  });
+
   const mismatches = turnos?.filter((t) => t.diferencia !== 0) ?? [];
 
   return (
     <div className="flex flex-col gap-6">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base font-medium">Saldo caja fuerte</CardTitle>
+        </CardHeader>
+        <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          {loadingSaldos && <p className="text-sm text-muted-foreground">Cargando…</p>}
+          {saldos?.map(({ sucursal, saldo }) => (
+            <div
+              key={sucursal.id}
+              className="flex items-center justify-between gap-4 rounded-lg border px-4 py-3"
+            >
+              <div>
+                <p className="text-sm text-muted-foreground">{sucursal.name}</p>
+                <p className="text-xl font-semibold">{formatCurrency(saldo)}</p>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={resetCaja.isPending}
+                onClick={() => {
+                  if (
+                    window.confirm(
+                      `¿Poner en $0 la caja fuerte de ${sucursal.name}? Esta acción no borra el historial de retiros, solo reinicia el saldo acumulado.`,
+                    )
+                  ) {
+                    resetCaja.mutate({ sucursalId: sucursal.id });
+                  }
+                }}
+              >
+                Caja en 0
+              </Button>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+
       <Card>
         <CardContent className="flex flex-wrap items-end gap-4 py-4">
           <div className="flex flex-col gap-1.5">

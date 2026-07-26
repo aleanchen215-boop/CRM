@@ -192,4 +192,40 @@ export const turnosRouter = router({
       });
       return retiros.map((r) => ({ ...r, monto: Number(r.monto) }));
     }),
+
+  // Saldo de la caja fuerte de cada sucursal: suma de sus retiros desde el
+  // último "caja en 0" (o desde siempre, si nunca se reseteó). No se
+  // borra ningún RetiroCaja — el historial de arriba sigue completo.
+  listSaldosCajaFuerte: requirePermission("finanzas:audit").query(async ({ ctx }) => {
+    const sucursales = await ctx.prisma.sucursal.findMany({ orderBy: { name: "asc" } });
+
+    return Promise.all(
+      sucursales.map(async (sucursal) => {
+        const lastReset = await ctx.prisma.cajaFuerteReset.findFirst({
+          where: { sucursalId: sucursal.id },
+          orderBy: { createdAt: "desc" },
+        });
+        const agg = await ctx.prisma.retiroCaja.aggregate({
+          where: {
+            sucursalId: sucursal.id,
+            ...(lastReset ? { createdAt: { gt: lastReset.createdAt } } : {}),
+          },
+          _sum: { monto: true },
+        });
+        return {
+          sucursal,
+          saldo: Number(agg._sum.monto ?? 0),
+          resetEn: lastReset?.createdAt ?? null,
+        };
+      }),
+    );
+  }),
+
+  resetCajaFuerte: requirePermission("finanzas:audit")
+    .input(z.object({ sucursalId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      return ctx.prisma.cajaFuerteReset.create({
+        data: { sucursalId: input.sucursalId, employeeId: ctx.user.id },
+      });
+    }),
 });

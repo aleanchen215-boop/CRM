@@ -35,6 +35,7 @@ model Sucursal {
   missingSupplyItems  MissingSupplyItem[]
   turnos              Turno[]
   retirosCaja         RetiroCaja[]
+  cajaFuerteResets    CajaFuerteReset[]
 
   @@map("sucursales")
 }
@@ -87,9 +88,10 @@ model User {
   assignedConversations Conversation[] @relation("AssignedEmployee")
   orders                Order[]
   auditLogs             AuditLog[]
-  turnosAbiertos        Turno[]      @relation("TurnoAbiertoPor")
-  turnosCerrados        Turno[]      @relation("TurnoCerradoPor")
+  turnosAbiertos        Turno[]           @relation("TurnoAbiertoPor")
+  turnosCerrados        Turno[]           @relation("TurnoCerradoPor")
   retirosCaja           RetiroCaja[]
+  cajaFuerteResets      CajaFuerteReset[]
 
   @@map("users")
 }
@@ -628,6 +630,21 @@ model RetiroCaja {
   createdAt  DateTime @default(now())
 
   @@map("retiros_caja")
+}
+
+// Marca de "se vació la caja fuerte" (ej. se depositó en el banco) — el
+// saldo de la caja fuerte de una sucursal es la suma de sus retiros desde
+// el último reset (o desde siempre, si nunca se reseteó). No se borran los
+// RetiroCaja históricos, así el historial de Finanzas no pierde nada.
+model CajaFuerteReset {
+  id         String   @id @default(uuid())
+  sucursalId String
+  sucursal   Sucursal @relation(fields: [sucursalId], references: [id])
+  employeeId String
+  employee   User     @relation(fields: [employeeId], references: [id])
+  createdAt  DateTime @default(now())
+
+  @@map("caja_fuerte_resets")
 }
 
 // ---------- IA ----------
