@@ -138,3 +138,35 @@
     display: none !important;
   }
 }
+
+/* Comanda para impresora térmica de 80mm (ticket de cocina/reparto, sin
+   validez fiscal) — el papel es un rollo continuo, así que el alto queda
+   en "auto" y solo se fija el ancho. El markup específico para esto vive
+   en .receipt-print (oculto en pantalla, visible solo al imprimir). */
+@page {
+  size: 80mm auto;
+  margin: 2mm;
+}
+
+.receipt-print {
+  display: none;
+}
+
+@media print {
+  .receipt-print {
+    display: block;
+    width: 76mm;
+    font-family: "Courier New", monospace;
+    font-size: 11px;
+    line-height: 1.4;
+    color: #000;
+    background: #fff;
+  }
+  /* Fuerza negro puro en todo lo de adentro — el tema oscuro de la app usa
+     grises claros (ej. text-muted-foreground) que en la térmica salen
+     borrosos o directamente no se ven. */
+  .receipt-print * {
+    color: #000 !important;
+    background: transparent !important;
+  }
+}

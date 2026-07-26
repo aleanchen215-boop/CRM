@@ -130,7 +130,7 @@ export default function OrderDetailPage({
         </div>
       </div>
 
-      <Card>
+      <Card className="print:hidden">
         <CardHeader>
           <CardTitle className="text-base font-medium">
             Comprobante interno {order.invoice ? `#${order.invoice.id.slice(0, 8)}` : ""}
@@ -195,6 +195,59 @@ export default function OrderDetailPage({
           </p>
         </CardContent>
       </Card>
+
+      {/* Vista de solo impresión para la térmica de 80mm — .receipt-print
+          queda display:none salvo en @media print (ver globals.css).
+          Angosta, monoespaciada, sin tabla de columnas: cada renglón apila
+          cantidad/nombre arriba y precio abajo para que entre en el papel. */}
+      <div className="receipt-print">
+        <p className="text-center font-bold uppercase">Empapizza</p>
+        <p className="text-center">{order.sucursal.name}</p>
+        <hr className="my-1 border-dashed border-black" />
+        <p>{new Date(order.createdAt).toLocaleString("es-AR")}</p>
+        <p>
+          {order.customer.firstName} {order.customer.lastName}
+        </p>
+        <p>{order.customer.whatsapp}</p>
+        <p>
+          {CHANNEL_LABELS[order.channel] ?? order.channel}
+          {order.channelSource ? ` (${order.channelSource})` : ""} ·{" "}
+          {METHOD_LABELS[order.method] ?? order.method}
+        </p>
+        {order.channel === "DELIVERY" && order.shippingAddress && (
+          <p>Dirección: {order.shippingAddress}</p>
+        )}
+        <hr className="my-1 border-dashed border-black" />
+        {order.items.map((item) => (
+          <div key={item.id} className="mb-1">
+            <p className="font-bold">
+              {item.quantity}x {itemLabel(item)}
+            </p>
+            <ItemDetail selections={item.selections} />
+            <p className="text-right">{formatCurrency(item.unitPrice * item.quantity)}</p>
+          </div>
+        ))}
+        <hr className="my-1 border-dashed border-black" />
+        {order.channel === "DELIVERY" && order.deliveryFee != null && (
+          <p className="flex justify-between">
+            <span>Envío</span>
+            <span>{formatCurrency(Number(order.deliveryFee))}</span>
+          </p>
+        )}
+        <p className="flex justify-between text-sm font-bold">
+          <span>TOTAL</span>
+          <span>{formatCurrency(order.total)}</span>
+        </p>
+        {order.notes && (
+          <>
+            <hr className="my-1 border-dashed border-black" />
+            <p className="font-bold">Obs:</p>
+            <p>{order.notes}</p>
+          </>
+        )}
+        <hr className="my-1 border-dashed border-black" />
+        <p className="text-center">Comprobante interno, sin validez fiscal.</p>
+      </div>
     </div>
   );
 }

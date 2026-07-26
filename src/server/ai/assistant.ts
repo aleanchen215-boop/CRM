@@ -239,6 +239,32 @@ async function listPromotions(): Promise<
   }));
 }
 
+// Mismo horario que ya estaba en el prompt como regla de estilo — acá se
+// usa además para calcular en código si el mensaje llega fuera de esa
+// ventana y agregarle al prompt un aviso puntual para esta respuesta (no
+// tiene sentido guardarlo en ai_settings porque depende de la hora exacta
+// en la que se genera cada respuesta, no es texto fijo).
+const BUSINESS_TIMEZONE = "America/Argentina/Buenos_Aires";
+function isWithinBusinessHours(date: Date): boolean {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: BUSINESS_TIMEZONE,
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(date);
+
+  const weekday = parts.find((p) => p.type === "weekday")?.value ?? "";
+  const hour = Number(parts.find((p) => p.type === "hour")?.value ?? "0") % 24;
+  const minute = Number(parts.find((p) => p.type === "minute")?.value ?? "0");
+  const minutesNow = hour * 60 + minute;
+
+  const isFriOrSat = weekday === "Fri" || weekday === "Sat";
+  const openMinutes = 19 * 60;
+  const closeMinutes = isFriOrSat ? 23 * 60 + 30 : 23 * 60;
+  return minutesNow >= openMinutes && minutesNow < closeMinutes;
+}
+
 async function getActiveSystemPrompt(): Promise<string> {
   const settings = await prisma.aiSettings.findFirst({ orderBy: { activeSince: "desc" } });
   const base = settings?.systemPrompt ?? DEFAULT_SYSTEM_PROMPT;
@@ -249,13 +275,19 @@ async function getActiveSystemPrompt(): Promise<string> {
   // directo en el prompt — como son pocas, no pesa, y así el modelo no tiene
   // forma de "no acordarse" de que existen.
   const promotions = await listPromotions();
-  if (promotions.length === 0) return base;
+  let result = base;
+  if (promotions.length > 0) {
+    const promoText = promotions
+      .map((p) => `- ${p.nombre} (${p.precio_ars}): incluye ${p.incluye.join(", ")}`)
+      .join("\n");
+    result = `${result}\n\nPromociones activas ahora mismo — SIEMPRE fijate si el pedido del cliente coincide con alguna de estas antes de cotizar productos sueltos, porque salen más baratas que comprar por separado:\n${promoText}`;
+  }
 
-  const promoText = promotions
-    .map((p) => `- ${p.nombre} (${p.precio_ars}): incluye ${p.incluye.join(", ")}`)
-    .join("\n");
+  if (!isWithinBusinessHours(new Date())) {
+    result += `\n\nAVISO: ahora mismo es FUERA del horario de atención. Si todavía no se lo mencionaste en esta conversación, avisale al cliente en tu próxima respuesta (de forma natural, con tus propias palabras, no como una advertencia robótica) que el horario de atención es domingo a jueves de 19 a 23hs y viernes y sábado de 19 a 23:30hs — pero aclarale que puede hacer su pedido igual ahora mismo, sin problema. Si ya se lo dijiste antes en esta misma conversación, no lo repitas de nuevo.`;
+  }
 
-  return `${base}\n\nPromociones activas ahora mismo — SIEMPRE fijate si el pedido del cliente coincide con alguna de estas antes de cotizar productos sueltos, porque salen más baratas que comprar por separado:\n${promoText}`;
+  return result;
 }
 
 export type ChatTurn = { role: "user" | "assistant"; content: string };
