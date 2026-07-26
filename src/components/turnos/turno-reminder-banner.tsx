@@ -4,18 +4,20 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { AlertTriangle } from "lucide-react";
 import { trpc } from "@/lib/trpc/client";
+import { isShiftRole } from "@/lib/shift-roles";
 
-// Recordatorio persistente para Cajero en cualquier pantalla (menos
-// Finanzas, donde ya está la acción de abrir turno) cuando todavía no
-// abrió el turno de caja de su sucursal.
+// Recordatorio persistente en cualquier pantalla (menos Finanzas, donde ya
+// está la acción de abrir turno) cuando todavía no abrió el turno de caja
+// de su sucursal.
 export function TurnoReminderBanner() {
   const pathname = usePathname();
   const { data: me } = trpc.system.me.useQuery();
+  const shiftRole = isShiftRole(me?.role);
   const { data: turno, isLoading } = trpc.turnos.getActive.useQuery(undefined, {
-    enabled: me?.role === "CAJERO",
+    enabled: shiftRole,
   });
 
-  if (me?.role !== "CAJERO" || isLoading || turno || pathname.startsWith("/finanzas")) {
+  if (!shiftRole || isLoading || turno || pathname.startsWith("/finanzas")) {
     return null;
   }
 

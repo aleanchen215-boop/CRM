@@ -44,8 +44,10 @@ export const PERMISSIONS = {
   "reports:read": ["ADMIN", "VENDEDOR", "SUPERVISOR"],
   "users:manage": ["ADMIN"],
   // Abrir/cerrar el turno de caja de su sucursal y registrar retiros a
-  // caja fuerte — Cajero opera el suyo, Admin puede operar cualquiera.
-  "turnos:operate": ["ADMIN", "CAJERO"],
+  // caja fuerte — lo usan Vendedor Paracao/Almafuerte (Cajero lo tiene
+  // habilitado también pero no se usa en la práctica); Admin puede operar
+  // cualquiera.
+  "turnos:operate": ["ADMIN", "CAJERO", "VENDEDOR_PARACAO", "VENDEDOR_ALMAFUERTE"],
   // Ver el historial de cierres de turno (con la diferencia contado vs.
   // esperado) y de retiros de ambas sucursales — solo Admin.
   "finanzas:audit": ["ADMIN"],

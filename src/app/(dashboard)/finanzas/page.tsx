@@ -1,14 +1,16 @@
 "use client";
 
 import { trpc } from "@/lib/trpc/client";
+import { isShiftRole } from "@/lib/shift-roles";
 import { AbrirTurnoCard } from "@/components/turnos/abrir-turno-card";
 import { TurnoActivoCard } from "@/components/turnos/turno-activo-card";
 import { FinanzasAdminView } from "@/components/turnos/finanzas-admin-view";
 
 export default function FinanzasPage() {
   const { data: me } = trpc.system.me.useQuery();
+  const shiftRole = isShiftRole(me?.role);
   const { data: turno, isLoading } = trpc.turnos.getActive.useQuery(undefined, {
-    enabled: me?.role === "CAJERO",
+    enabled: shiftRole,
   });
 
   return (
@@ -24,7 +26,7 @@ export default function FinanzasPage() {
 
       {me?.role === "ADMIN" && <FinanzasAdminView />}
 
-      {me?.role === "CAJERO" && !isLoading && (turno ? <TurnoActivoCard turno={turno} /> : <AbrirTurnoCard />)}
+      {shiftRole && !isLoading && (turno ? <TurnoActivoCard turno={turno} /> : <AbrirTurnoCard />)}
     </div>
   );
 }

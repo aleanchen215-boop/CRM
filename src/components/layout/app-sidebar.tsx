@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/sidebar";
 import { UserMenu } from "@/components/layout/user-menu";
 import { CerrarTurnoButton } from "@/components/turnos/cerrar-turno-button";
+import { isShiftRole } from "@/lib/shift-roles";
 import type { UserRole } from "@/generated/prisma/enums";
 
 // Cajero, Productor y Depósito son roles acotados a un par de pantallas
@@ -104,7 +105,7 @@ const NAV_ITEMS = [
     href: "/finanzas",
     label: "Finanzas",
     icon: Landmark,
-    roles: ["ADMIN", "CAJERO"],
+    roles: ["ADMIN", "CAJERO", "VENDEDOR_PARACAO", "VENDEDOR_ALMAFUERTE"],
   },
 ] as const satisfies ReadonlyArray<{
   href: string;
@@ -172,7 +173,7 @@ export function AppSidebar({ user }: { user: AppSidebarUser }) {
               </SidebarMenuButton>
             </SidebarMenuItem>
           )}
-          {user.role === "CAJERO" && (
+          {isShiftRole(user.role) && (
             <SidebarMenuItem>
               <CerrarTurnoButton />
             </SidebarMenuItem>
