@@ -17,20 +17,29 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 
+// Billetes en circulación — el total contado sale de sumar cantidad ×
+// denominación de cada uno, no se tipea a mano.
+const DENOMINATIONS = [10, 20, 50, 100, 200, 500, 1000, 2000, 10000] as const;
+
 // Solo se muestra si hay un turno abierto — sin turno no hay nada que
 // cerrar. El cierre se permite aunque el monto contado no coincida con el
 // esperado (ventas en efectivo - retiros); la diferencia queda registrada
 // para que el Admin la vea en Finanzas, no bloquea nada acá.
 export function CerrarTurnoButton() {
   const [open, setOpen] = useState(false);
-  const [monto, setMonto] = useState("");
+  const [counts, setCounts] = useState<Record<number, string>>({});
   const utils = trpc.useUtils();
   const { data: turno } = trpc.turnos.getActive.useQuery();
+
+  const total = DENOMINATIONS.reduce(
+    (sum, denom) => sum + (Number(counts[denom]) || 0) * denom,
+    0,
+  );
 
   const close = trpc.turnos.close.useMutation({
     onSuccess: async (result) => {
       setOpen(false);
-      setMonto("");
+      setCounts({});
       await utils.turnos.getActive.invalidate();
       if (result.diferencia === 0) {
         toast.success("Turno cerrado — el efectivo coincidió.");
@@ -60,30 +69,47 @@ export function CerrarTurnoButton() {
           className="flex flex-col gap-4"
           onSubmit={(event) => {
             event.preventDefault();
-            const n = Number(monto);
-            if (Number.isNaN(n) || n < 0) return;
-            close.mutate({ montoContado: n });
+            if (total <= 0) return;
+            close.mutate({ montoContado: total });
           }}
         >
           <p className="text-sm text-muted-foreground">
-            Contá el efectivo que hay en la caja ahora y poné el total. Se compara con lo que
-            debería haber según la apertura y las ventas en efectivo del turno.
+            Contá la caja por billete — se suma solo. Se compara con lo que debería haber según
+            la apertura y las ventas en efectivo del turno.
           </p>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="monto-cierre">Efectivo contado</Label>
-            <Input
-              id="monto-cierre"
-              type="number"
-              min={0}
-              step="0.01"
-              autoFocus
-              value={monto}
-              onChange={(event) => setMonto(event.target.value)}
-              disabled={close.isPending}
-              required
-            />
+
+          <div className="flex flex-col gap-2">
+            {DENOMINATIONS.map((denom) => (
+              <div key={denom} className="flex items-center gap-3">
+                <Label htmlFor={`denom-${denom}`} className="w-20 shrink-0">
+                  {formatCurrency(denom)}
+                </Label>
+                <Input
+                  id={`denom-${denom}`}
+                  type="number"
+                  min={0}
+                  step={1}
+                  placeholder="0"
+                  value={counts[denom] ?? ""}
+                  onChange={(event) =>
+                    setCounts((prev) => ({ ...prev, [denom]: event.target.value }))
+                  }
+                  disabled={close.isPending}
+                  className="w-20"
+                />
+                <span className="w-24 shrink-0 text-right text-sm text-muted-foreground">
+                  {formatCurrency((Number(counts[denom]) || 0) * denom)}
+                </span>
+              </div>
+            ))}
           </div>
-          <Button type="submit" disabled={close.isPending || !monto}>
+
+          <div className="flex items-center justify-between rounded-lg border bg-muted/40 px-3 py-2 text-sm">
+            <span className="text-muted-foreground">Total contado</span>
+            <span className="font-semibold">{formatCurrency(total)}</span>
+          </div>
+
+          <Button type="submit" disabled={close.isPending || total <= 0}>
             {close.isPending ? "Cerrando…" : "Cerrar turno"}
           </Button>
         </form>
