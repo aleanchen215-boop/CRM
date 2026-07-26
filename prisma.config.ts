@@ -13,7 +13,10 @@ export default defineConfig({
   migrations: {
     path: "prisma/migrations",
   },
+  // La CLI (migrate/db pull/etc.) usa DIRECT_URL (modo sesión) — la app
+  // corriendo usa DATABASE_URL (pooler en modo transacción) directo desde
+  // src/lib/prisma.ts, no pasa por acá.
   datasource: {
-    url: process.env["DATABASE_URL"],
+    url: process.env["DIRECT_URL"] ?? process.env["DATABASE_URL"],
   },
 });
