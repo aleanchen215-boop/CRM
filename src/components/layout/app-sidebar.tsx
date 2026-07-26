@@ -155,6 +155,11 @@ export function AppSidebar({ user }: { user: AppSidebarUser }) {
                   </SidebarMenuItem>
                 );
               })}
+              {isShiftRole(user.role) && (
+                <SidebarMenuItem>
+                  <CerrarTurnoButton />
+                </SidebarMenuItem>
+              )}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
@@ -171,11 +176,6 @@ export function AppSidebar({ user }: { user: AppSidebarUser }) {
                 <Settings />
                 <span>Configuración</span>
               </SidebarMenuButton>
-            </SidebarMenuItem>
-          )}
-          {isShiftRole(user.role) && (
-            <SidebarMenuItem>
-              <CerrarTurnoButton />
             </SidebarMenuItem>
           )}
           <SidebarMenuItem>
