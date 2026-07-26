@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { toast } from "sonner";
-import { Bot, Send, UserCog, X } from "lucide-react";
+import { Bot, Send, TriangleAlert, UserCog, X } from "lucide-react";
 import { trpc } from "@/lib/trpc/client";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -84,6 +84,12 @@ export function MessageThread({ conversationId }: { conversationId: string }) {
 
   return (
     <div className="flex flex-1 flex-col">
+      {conversation.status === "PENDIENTE" && (
+        <div className="flex items-center gap-2 border-b bg-amber-500/10 px-4 py-2 text-sm text-amber-700 dark:text-amber-400">
+          <TriangleAlert className="size-4 shrink-0" />
+          La IA derivó esta conversación (reclamo o consulta que no pudo resolver sola) — respondé vos directamente, la IA está apagada acá.
+        </div>
+      )}
       <div className="flex items-center justify-between border-b px-4 py-3">
         <div>
           <p className="font-medium">

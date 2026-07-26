@@ -50,6 +50,14 @@ export function ConversationList({
                 <Bot className="size-3.5 shrink-0 text-muted-foreground" />
               )}
               {conversation.customer.firstName} {conversation.customer.lastName}
+              {conversation.status === "PENDIENTE" && (
+                <span
+                  title="La IA derivó esta conversación — hay que responder manualmente"
+                  className="flex h-4 w-4 items-center justify-center rounded-full bg-amber-500 text-[10px] font-bold text-white"
+                >
+                  !
+                </span>
+              )}
             </span>
             <ConversationStatusBadge status={conversation.status} />
           </div>

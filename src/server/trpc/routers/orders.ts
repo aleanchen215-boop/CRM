@@ -4,7 +4,7 @@ import { orderInputSchema, orderStatusUpdateSchema, getAllowedPaymentMethods } f
 import { requirePermission, router } from "@/server/trpc/trpc";
 import { resolveSucursalFilter, resolveSucursalForWrite } from "@/server/trpc/sucursal";
 import { sendWhatsappTextMessage } from "@/server/integrations/whatsapp/client";
-import { createOrder } from "@/server/orders/create-order";
+import { createOrder, addItemsToOrder, removeItemsFromOrder, reconcilePromotions } from "@/server/orders/create-order";
 
 function toNumber<T extends { total: unknown }>(order: T) {
   return { ...order, total: Number(order.total) };
@@ -95,6 +95,67 @@ export const ordersRouter = router({
       const sucursalId = resolveSucursalForWrite(ctx.user, input.sucursalId);
       const order = await createOrder({ ...input, sucursalId, employeeId: ctx.user.id });
       return toNumber(order);
+    }),
+
+  // Edición manual desde el CRM (botón "Editar pedido" en el detalle) —
+  // agrega productos sueltos a un pedido ya creado, mientras siga en un
+  // estado modificable (ver isModifiable en create-order.ts). Reconcilia
+  // promos después por si la combinación resultante arma una, igual que
+  // hace el asistente de WhatsApp.
+  addItems: requirePermission("orders:write")
+    .input(
+      z.object({
+        orderId: z.string(),
+        items: z.array(z.object({ productId: z.string(), quantity: z.number().positive() })).min(1),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const updated = await addItemsToOrder(
+        input.orderId,
+        input.items.map((item) => ({ kind: "PRODUCTO" as const, ...item })),
+      );
+      if (!updated) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Este pedido ya no se puede modificar (ya está en preparación o ya salió).",
+        });
+      }
+      const reconciled = (await reconcilePromotions(updated.id)) ?? updated;
+      return toNumber(reconciled);
+    }),
+
+  // Saca productos sueltos de un pedido ya creado — nunca puede dejarlo sin
+  // ningún renglón (eso equivale a cancelarlo, y para eso está el botón
+  // Cancelar venta): se valida ANTES de tocar nada, contando lo que
+  // realmente queda considerando renglones sueltos, de promo, y mitad y
+  // mitad, no solo lo que se pide sacar.
+  removeItems: requirePermission("orders:write")
+    .input(
+      z.object({
+        orderId: z.string(),
+        removals: z.array(z.object({ productId: z.string(), quantity: z.number().positive() })).min(1),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const currentItems = await ctx.prisma.orderItem.findMany({ where: { orderId: input.orderId } });
+      const totalCurrentQty = currentItems.reduce((sum, item) => sum + item.quantity, 0);
+      const requestedRemovalQty = input.removals.reduce((sum, r) => sum + r.quantity, 0);
+      if (requestedRemovalQty >= totalCurrentQty) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "No podés sacar todos los productos del pedido — eso lo dejaría vacío. Para cancelarlo, usá el botón Cancelar venta.",
+        });
+      }
+
+      const updated = await removeItemsFromOrder(input.orderId, input.removals);
+      if (!updated) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Este pedido ya no se puede modificar (ya está en preparación o ya salió).",
+        });
+      }
+      const reconciled = (await reconcilePromotions(updated.id)) ?? updated;
+      return toNumber(reconciled);
     }),
 
   updateStatus: requirePermission("orders:write")

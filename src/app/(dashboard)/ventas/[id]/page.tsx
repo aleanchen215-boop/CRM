@@ -14,6 +14,10 @@ import { PaymentStatusBadge } from "@/components/orders/payment-status-badge";
 import { OrderStatusSelect } from "@/components/orders/order-status-select";
 import { OrderNotifyButton } from "@/components/orders/order-notify-button";
 import { OrderCancelButton } from "@/components/orders/order-cancel-button";
+import { EditOrderDialog } from "@/components/orders/edit-order-dialog";
+import { useCanPerform } from "@/lib/use-can-perform";
+
+const MODIFIABLE_STATUSES = new Set(["PENDIENTE", "CONFIRMADO"]);
 
 const METHOD_LABELS: Record<string, string> = {
   MERCADO_PAGO: "Mercado Pago",
@@ -79,6 +83,7 @@ export default function OrderDetailPage({
   const { id } = use(params);
   const { data: order, isLoading } = trpc.orders.getById.useQuery({ id }, { refetchInterval: 5000 });
   const utils = trpc.useUtils();
+  const canEdit = useCanPerform("orders:write");
 
   const acknowledge = trpc.orders.acknowledgeChanges.useMutation({
     onSuccess: async () => {
@@ -159,6 +164,9 @@ export default function OrderDetailPage({
         </div>
         <div className="flex items-center gap-2">
           <OrderNotifyButton orderId={order.id} channel={order.channel} />
+          {canEdit && MODIFIABLE_STATUSES.has(order.status) && (
+            <EditOrderDialog orderId={order.id} items={order.items} />
+          )}
           <OrderStatusSelect orderId={order.id} status={order.status} />
           <OrderCancelButton
             orderId={order.id}
