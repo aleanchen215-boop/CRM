@@ -3,9 +3,10 @@
 import { useState } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
-import { Check, Plus, X } from "lucide-react";
+import { Check, Pencil, Plus, X } from "lucide-react";
 import { trpc } from "@/lib/trpc/client";
 import { useCanPerform } from "@/lib/use-can-perform";
+import { getRestockMode } from "@/lib/restock-mode";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,29 +29,55 @@ function isEmpanadaSupply(supply: { productUsages: { product: { category: { name
   return supply.productUsages.some((usage) => usage.product?.category?.name === "Empanadas");
 }
 
-// Botón "+" para sumar cantidad a un insumo sin pasar por la pantalla de
-// detalle — pensado para Repartidor, que solo puede sumar (nunca sacar ni
-// ajustar).
-function RestockControl({ supplyId }: { supplyId: string }) {
+// Control de stock rápido sin pasar por la pantalla de detalle — pensado
+// para Repartidor (y Admin), que solo puede sumar/ajustar, nunca crear,
+// editar o sacar. Dos modos según la sucursal (ver getRestockMode):
+// "add" suma una cantidad al total actual; "set" deja el total en el
+// número que se cuenta (ajuste), precargado con la cantidad actual.
+function RestockControl({
+  supplyId,
+  currentQuantity,
+  mode,
+}: {
+  supplyId: string;
+  currentQuantity: number;
+  mode: "add" | "set";
+}) {
   const [open, setOpen] = useState(false);
   const [quantity, setQuantity] = useState("");
   const utils = trpc.useUtils();
 
+  const onSuccess = async (message: string) => {
+    toast.success(message);
+    setQuantity("");
+    setOpen(false);
+    await utils.supplies.list.invalidate();
+  };
+
   const restock = trpc.supplies.restock.useMutation({
-    onSuccess: async () => {
-      toast.success("Stock sumado");
-      setQuantity("");
-      setOpen(false);
-      await utils.supplies.list.invalidate();
-    },
+    onSuccess: () => onSuccess("Stock sumado"),
+    onError: (error) => toast.error(error.message),
+  });
+  const setStock = trpc.supplies.setStock.useMutation({
+    onSuccess: () => onSuccess("Stock actualizado"),
     onError: (error) => toast.error(error.message),
   });
 
+  const pending = restock.isPending || setStock.isPending;
+
   if (!open) {
     return (
-      <Button type="button" variant="outline" size="icon-sm" onClick={() => setOpen(true)}>
-        <Plus />
-        <span className="sr-only">Sumar stock</span>
+      <Button
+        type="button"
+        variant="outline"
+        size="icon-sm"
+        onClick={() => {
+          setQuantity(mode === "set" ? String(currentQuantity) : "");
+          setOpen(true);
+        }}
+      >
+        {mode === "add" ? <Plus /> : <Pencil />}
+        <span className="sr-only">{mode === "add" ? "Sumar stock" : "Ajustar cantidad"}</span>
       </Button>
     );
   }
@@ -61,21 +88,27 @@ function RestockControl({ supplyId }: { supplyId: string }) {
       onSubmit={(event) => {
         event.preventDefault();
         const n = Number(quantity);
-        if (!n || n <= 0) return;
-        restock.mutate({ supplyId, quantity: n });
+        if (mode === "add") {
+          if (!n || n <= 0) return;
+          restock.mutate({ supplyId, quantity: n });
+        } else {
+          if (Number.isNaN(n) || n < 0) return;
+          setStock.mutate({ supplyId, quantity: n });
+        }
       }}
     >
       <Input
         type="number"
-        min={1}
+        min={0}
         autoFocus
-        placeholder="Cant."
+        placeholder={mode === "add" ? "Cant." : "Total"}
+        title={mode === "set" ? "Cantidad total que hay ahora" : undefined}
         className="h-7 w-16"
         value={quantity}
         onChange={(event) => setQuantity(event.target.value)}
-        disabled={restock.isPending}
+        disabled={pending}
       />
-      <Button type="submit" size="icon-sm" disabled={restock.isPending || !quantity}>
+      <Button type="submit" size="icon-sm" disabled={pending || !quantity}>
         <Check />
         <span className="sr-only">Confirmar</span>
       </Button>
@@ -83,7 +116,7 @@ function RestockControl({ supplyId }: { supplyId: string }) {
         type="button"
         variant="ghost"
         size="icon-sm"
-        disabled={restock.isPending}
+        disabled={pending}
         onClick={() => {
           setOpen(false);
           setQuantity("");
@@ -102,6 +135,8 @@ function RestockControl({ supplyId }: { supplyId: string }) {
 export function SupplyTable({ sucursalId, search }: { sucursalId: string; search?: string }) {
   const canAdd = useCanPerform("stock:add");
   const { data: supplies, isLoading } = trpc.supplies.list.useQuery({ search, sucursalId });
+  const { data: sucursales } = trpc.sucursales.list.useQuery();
+  const restockMode = getRestockMode(sucursales?.find((s) => s.id === sucursalId)?.slug);
 
   const empanadaSupplies = supplies?.filter(isEmpanadaSupply) ?? [];
   const otherSupplies = supplies?.filter((supply) => !isEmpanadaSupply(supply)) ?? [];
@@ -151,7 +186,11 @@ export function SupplyTable({ sucursalId, search }: { sucursalId: string; search
                 </TableCell>
                 {canAdd && (
                   <TableCell>
-                    <RestockControl supplyId={supply.id} />
+                    <RestockControl
+                      supplyId={supply.id}
+                      currentQuantity={supply.quantity}
+                      mode={restockMode}
+                    />
                   </TableCell>
                 )}
               </TableRow>
@@ -181,7 +220,11 @@ export function SupplyTable({ sucursalId, search }: { sucursalId: string; search
                 </TableCell>
                 {canAdd && (
                   <TableCell>
-                    <RestockControl supplyId={supply.id} />
+                    <RestockControl
+                      supplyId={supply.id}
+                      currentQuantity={supply.quantity}
+                      mode={restockMode}
+                    />
                   </TableCell>
                 )}
               </TableRow>

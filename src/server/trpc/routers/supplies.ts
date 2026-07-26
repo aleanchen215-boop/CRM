@@ -167,6 +167,35 @@ export const suppliesRouter = router({
       });
     }),
 
+  // Deja la cantidad en el número exacto que se cuenta (AJUSTE), en vez de
+  // sumar — para la sucursal en la que el reparto se cuenta como total
+  // final y no como "cuánto se agregó" (ver getAllowedRestockMode).
+  setStock: requirePermission("stock:add")
+    .input(z.object({ supplyId: z.string(), quantity: z.coerce.number().int().min(0) }))
+    .mutation(async ({ ctx, input }) => {
+      return ctx.prisma.$transaction(async (tx) => {
+        const supply = await tx.supply.findUnique({ where: { id: input.supplyId } });
+        if (!supply) throw new TRPCError({ code: "NOT_FOUND" });
+        assertSucursalAccess(ctx.user, supply.sucursalId);
+
+        const movementQuantity = input.quantity - supply.quantity;
+
+        await tx.supply.update({
+          where: { id: input.supplyId },
+          data: { quantity: input.quantity },
+        });
+
+        return tx.supplyMovement.create({
+          data: {
+            supplyId: input.supplyId,
+            type: "AJUSTE",
+            quantity: movementQuantity,
+            reason: "Reparto (recuento)",
+          },
+        });
+      });
+    }),
+
   // Lista de compras rápida ("insumos faltantes"): cualquiera con acceso a
   // Stock puede anotar algo que se está por terminar, y tacharlo cuando ya
   // se compró. No pisa el modelo de Supply — es solo una nota.
