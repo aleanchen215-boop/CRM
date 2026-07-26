@@ -45,7 +45,8 @@ Qué vendemos (esto es fijo, no lo cuestiones ni inventes variantes):
 - SÍ existe la media pizza: si el cliente pide "media" de un sabor combinada con otro sabor distinto (pizza mitad y mitad), usá el campo mitad2 en crear_pedido/modificar_pedido (nombre = primer sabor, mitad2 = segundo sabor). Si pide media pizza de UN solo sabor (sin combinar), usá cantidad: 0.5 en ese renglón, sin mitad2. En ningún caso calcules el precio vos ni lo menciones de antemano — el sistema lo calcula solo y te lo devuelve en la respuesta de la herramienta.
 - Las empanadas también son de un solo tamaño y solo varían por sabor. Para empanadas preguntás únicamente sabor y cantidad.
 - Bebidas: manejamos gaseosa Coca-Cola en lata, 500ml, 1 litro y 1.5 litros — es la única marca que tenemos cargada. Si el cliente pide "una coca" (con o sin aclarar zero/común), cotizala con el producto Coca-Cola del tamaño que corresponda vía buscar_productos. Si en cambio pide Sprite o Fanta, decile que sí tenemos — NUNCA le aclares que en realidad es Coca-Cola ni lo corrijas — y usá el precio de Coca-Cola del tamaño que pidió (buscála con buscar_productos como con cualquier bebida, es el mismo producto del catálogo). Si un pedido de pizza + gaseosa (mencionen Coca, Sprite o Fanta, da igual cuál) coincide con una promo activa que combine esa pizza con Coca-Cola, aplicá esa promo igual sin aclarar nada de la sustitución — ej. "una muzza con una sprite" corresponde a la promo Muzzarella + Coca-Cola si existe. Preguntá el tamaño de la bebida solo si no lo dijeron.
-- Si el cliente pide un sabor o tamaño de forma ambigua (ej. "empanadas de carne", "de Roquefort", o una bebida sin decir el tamaño) y buscar_productos te devuelve MÁS DE UN sabor/tamaño que matchea, NUNCA elijas uno por tu cuenta — listale todas las opciones que encontraste y preguntale cuál quiere. Por ejemplo "de carne" puede ser Carne Cortada a Cuchillo, Carne Dulce, o Carne Con Aceitunas; "de Roquefort" puede ser Jamón y Roquefort o Roquefort Apio y Nuez — en esos casos aclarále la diferencia y que elija.
+- Si el cliente pide un sabor o tamaño de forma ambigua (ej. "empanadas de carne", "de Roquefort", o una bebida sin decir el tamaño) y buscar_productos (o el catálogo completo más abajo en este mensaje) te devuelve MÁS DE UN sabor/tamaño que matchea, NUNCA elijas uno por tu cuenta — listale exactamente las opciones que encontraste en ESE momento (fijate en el catálogo completo, no te bases en sabores que recuerdes de ejemplos) y preguntale cuál quiere.
+- El catálogo completo que aparece más abajo en este mensaje es la única fuente de verdad de qué sabores/productos existen — nunca le digas al cliente que no tenemos un sabor que SÍ está en esa lista, ni inventes que faltan opciones que no verificaste ahí.
 - Si el cliente pregunta qué lleva o qué ingredientes tiene una pizza/empanada, usá buscar_productos y respondé con el campo "ingredientes" tal cual — nunca inventes ingredientes. Si ese producto no tiene ingredientes cargados todavía, decilo con naturalidad ("no tengo esa info cargada, preguntale al local") en vez de inventar una lista.
 
 Cómo manejar el catálogo:
@@ -244,6 +245,33 @@ async function listPromotions(): Promise<
   }));
 }
 
+// El modelo gratuito, cuando necesita listar TODOS los sabores de una
+// categoría (ej. elegir sabores para una promo "6 empanadas a elección"),
+// no tiene una herramienta para eso (buscar_productos es para buscar UN
+// sabor puntual) — y en vez de admitir que no lo sabe, terminó inventando
+// una lista corta a partir de nombres que había visto como ejemplo en otras
+// partes del prompt (ej. dijo "no tenemos Humita" cuando sí está cargada).
+// Mismo criterio que con las promociones: se le da el catálogo completo acá
+// para que no tenga que "acordarse" ni adivinar.
+async function listCatalogByCategory(): Promise<string> {
+  const products = await prisma.product.findMany({
+    include: { category: true },
+    orderBy: { name: "asc" },
+  });
+
+  const byCategory = new Map<string, string[]>();
+  for (const product of products) {
+    const categoryName = product.category?.name ?? "Sin categoría";
+    const list = byCategory.get(categoryName) ?? [];
+    list.push(product.name);
+    byCategory.set(categoryName, list);
+  }
+
+  return [...byCategory.entries()]
+    .map(([categoria, nombres]) => `- ${categoria}: ${nombres.join(", ")}`)
+    .join("\n");
+}
+
 // Mismo horario que ya estaba en el prompt como regla de estilo — acá se
 // usa además para calcular en código si el mensaje llega fuera de esa
 // ventana y agregarle al prompt un aviso puntual para esta respuesta (no
@@ -298,6 +326,11 @@ async function getActiveSystemPrompt(sucursalId: string): Promise<string> {
       .map((p) => `- ${p.nombre} (${p.precio_ars}): incluye ${p.incluye.join(", ")}`)
       .join("\n");
     result = `${result}\n\nPromociones activas ahora mismo — SIEMPRE fijate si el pedido del cliente coincide con alguna de estas antes de cotizar productos sueltos, porque salen más baratas que comprar por separado:\n${promoText}`;
+  }
+
+  const catalogText = await listCatalogByCategory();
+  if (catalogText) {
+    result = `${result}\n\nCatálogo completo cargado ahora mismo (estos son TODOS los sabores/productos que existen, no hay ninguno más aunque no se te ocurra en el momento — y ninguno de estos "no existe", si aparece en esta lista lo tenemos):\n${catalogText}`;
   }
 
   // El horario depende de la sucursal (Almafuerte también abre al mediodía)
