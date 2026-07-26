@@ -100,11 +100,16 @@ const SEARCH_PRODUCTS_TOOL: ChatCompletionTool = {
   function: {
     name: "buscar_productos",
     description:
-      "Busca productos del catálogo (pizzas o empanadas) por nombre O por código/SKU para conocer su precio, categoría e ingredientes exactos. Funciona igual si el cliente abrevia el sabor con el código (ej. \"EP\", \"JQ\") — pasá el texto tal cual lo escribió el cliente, no hace falta adivinar el nombre completo. Usar siempre antes de mencionar un precio o confirmar disponibilidad, y también cuando el cliente pregunte qué lleva o qué ingredientes tiene un producto.",
+      "Busca productos del catálogo (pizzas o empanadas) por nombre O por código/SKU para conocer su precio, categoría e ingredientes exactos. Funciona igual si el cliente abrevia el sabor con el código (ej. \"EP\", \"JQ\") — pasá el texto tal cual lo escribió el cliente, no hace falta adivinar el nombre completo. Usar siempre antes de mencionar un precio o confirmar disponibilidad, y también cuando el cliente pregunte qué lleva o qué ingredientes tiene un producto. Si el cliente pregunta cuánto sale una CANTIDAD de algo (ej. \"cuánto salen 5 empanadas de carne\"), pasá esa cantidad en el campo cantidad y usá el subtotal_ars que te devuelve — NUNCA multipliques el precio vos de memoria, te podés equivocar en la cuenta.",
     parameters: {
       type: "object",
       properties: {
         query: { type: "string", description: "Texto para buscar en el nombre del producto" },
+        cantidad: {
+          type: "number",
+          description:
+            "Solo si el cliente preguntó el precio de VARIAS unidades (ej. \"5 empanadas\" → 5). Omitir si solo pregunta el precio de una unidad o el precio en general.",
+        },
       },
       required: ["query"],
     },
@@ -187,12 +192,22 @@ function sanitizeForWhatsapp(text: string): string {
 
 async function searchProducts(
   query: string,
-): Promise<{ nombre: string; categoria: string; precio_ars: string; ingredientes?: string }[]> {
+  cantidad?: number,
+): Promise<
+  { nombre: string; categoria: string; precio_ars: string; subtotal_ars?: string; ingredientes?: string }[]
+> {
   // Escala chica (decenas de productos): traer todo y filtrar en memoria es
   // más simple y más tolerante que armar el WHERE ideal en SQL.
   const products = await prisma.product.findMany({ take: 200, include: { category: true } });
 
   const normalizedQuery = normalize(aliasDrinkBrands(query));
+
+  // Cuando el cliente pregunta el precio de varias unidades, el subtotal se
+  // calcula ACÁ (no en el modelo) — un modelo gratuito multiplicando de
+  // memoria se equivoca (ej. dijo $12.500 para 5 empanadas de $2.400, que
+  // son $12.000).
+  const withSubtotal = <T extends { precio: number }>(item: T) =>
+    cantidad && cantidad > 0 ? { subtotal_ars: formatArs(item.precio * cantidad) } : {};
 
   // Muchos clientes abrevian el sabor con el SKU tal cual está cargado en
   // Productos (ej. "EP" por Entraña y Provoleta, "JQ" por Jamón y Queso) —
@@ -205,6 +220,7 @@ async function searchProducts(
         nombre: skuMatch.name,
         categoria: skuMatch.category?.name ?? "Sin categoría",
         precio_ars: formatArs(Number(skuMatch.price)),
+        ...withSubtotal({ precio: Number(skuMatch.price) }),
         ...(skuMatch.ingredients ? { ingredientes: skuMatch.ingredients } : {}),
       },
     ];
@@ -221,6 +237,7 @@ async function searchProducts(
     nombre: product.name,
     categoria: product.category?.name ?? "Sin categoría",
     precio_ars: formatArs(Number(product.price)),
+    ...withSubtotal({ precio: Number(product.price) }),
     ...(product.ingredients ? { ingredientes: product.ingredients } : {}),
   }));
 }
@@ -330,7 +347,7 @@ async function getActiveSystemPrompt(sucursalId: string): Promise<string> {
 
   const catalogText = await listCatalogByCategory();
   if (catalogText) {
-    result = `${result}\n\nCatálogo completo cargado ahora mismo (estos son TODOS los sabores/productos que existen, no hay ninguno más aunque no se te ocurra en el momento — y ninguno de estos "no existe", si aparece en esta lista lo tenemos):\n${catalogText}`;
+    result = `${result}\n\nCatálogo completo cargado ahora mismo (estos son TODOS los sabores/productos que existen, no hay ninguno más aunque no se te ocurra en el momento — y ninguno de estos "no existe", si aparece en esta lista lo tenemos). Esta lista es SOLO para que vos sepas qué existe y valides lo que pide el cliente — NUNCA se la recites entera al cliente por tu cuenta. Si el cliente confirma que quiere pedir algo pero todavía no dijo sabores (ej. "¿puedo pedir 6 empanadas?"), respondé corto tipo "sí, ¿qué sabores querés?" — sin listar el menú completo. Recién listale opciones puntuales si pregunta explícitamente qué sabores hay, o si su pedido es ambiguo entre dos o más (ver regla de arriba):\n${catalogText}`;
   }
 
   // El horario depende de la sucursal (Almafuerte también abre al mediodía)
@@ -410,8 +427,8 @@ export async function generateAiReply(
       let output = "[]";
       try {
         if (call.function.name === "buscar_productos") {
-          const args = JSON.parse(call.function.arguments) as { query: string };
-          output = JSON.stringify(await searchProducts(args.query));
+          const args = JSON.parse(call.function.arguments) as { query: string; cantidad?: number };
+          output = JSON.stringify(await searchProducts(args.query, args.cantidad));
         } else if (call.function.name === "buscar_promociones") {
           output = JSON.stringify(await listPromotions());
         } else if (call.function.name === "crear_pedido") {
