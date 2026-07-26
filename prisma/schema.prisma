@@ -489,6 +489,14 @@ model Order {
   // Pedidos especiales del cliente sobre la preparación (ej. "bien dorada",
   // "sin cebolla") — texto libre, se muestra en cocina junto al pedido.
   notes           String?
+  // Se pone en hora cuando el cliente le agrega/saca algo al pedido por
+  // WhatsApp después de creado (modificar_pedido) — dispara el aviso "!" en
+  // Ventas. Se limpia cuando alguien del local abre el detalle del pedido.
+  modifiedByCustomerAt DateTime?
+  // Se pone en hora cuando el cliente pide cancelar por WhatsApp — el
+  // pedido NO se cancela solo, queda visible con un cartel grande hasta
+  // que alguien del local confirma la cancelación a mano (orders.cancel).
+  cancelRequestedByCustomerAt DateTime?
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
@@ -516,6 +524,11 @@ model OrderItem {
   selections  Json?
   quantity    Int
   unitPrice   Decimal    @db.Decimal(12, 2)
+  // Se pone en hora cuando este renglón se agregó vía modificar_pedido (el
+  // cliente pidió algo más por WhatsApp después de creado el pedido) — se
+  // usa para resaltarlo en el detalle de la venta. Nulo para los renglones
+  // que ya venían en el pedido original.
+  addedByCustomerAt DateTime?
 
   @@map("order_items")
 }

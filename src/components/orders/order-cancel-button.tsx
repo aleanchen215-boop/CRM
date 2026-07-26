@@ -4,9 +4,18 @@ import { toast } from "sonner";
 import { Ban } from "lucide-react";
 import { trpc } from "@/lib/trpc/client";
 import { Button } from "@/components/ui/button";
+import { useCanPerform } from "@/lib/use-can-perform";
 
-export function OrderCancelButton({ orderId, status }: { orderId: string; status: string }) {
-  const { data: me } = trpc.system.me.useQuery();
+export function OrderCancelButton({
+  orderId,
+  status,
+  cancelRequestedByCustomerAt,
+}: {
+  orderId: string;
+  status: string;
+  cancelRequestedByCustomerAt?: string | Date | null;
+}) {
+  const canCancel = useCanPerform("orders:cancel");
   const utils = trpc.useUtils();
 
   const cancel = trpc.orders.cancel.useMutation({
@@ -20,8 +29,9 @@ export function OrderCancelButton({ orderId, status }: { orderId: string; status
     onError: (error) => toast.error(error.message),
   });
 
-  // Solo Admin puede cancelar una venta ya hecha — el resto ni ve el botón.
-  if (me?.role !== "ADMIN" || status === "CANCELADO") return null;
+  if (!canCancel || status === "CANCELADO") return null;
+
+  const requestedByCustomer = Boolean(cancelRequestedByCustomerAt);
 
   return (
     <Button
@@ -29,13 +39,16 @@ export function OrderCancelButton({ orderId, status }: { orderId: string; status
       size="sm"
       disabled={cancel.isPending}
       onClick={() => {
-        if (window.confirm("¿Cancelar esta venta? Esta acción no se puede deshacer desde acá.")) {
+        const message = requestedByCustomer
+          ? "El cliente pidió cancelar este pedido por WhatsApp. ¿Confirmás la cancelación?"
+          : "¿Cancelar esta venta? Esta acción no se puede deshacer desde acá.";
+        if (window.confirm(message)) {
           cancel.mutate({ id: orderId });
         }
       }}
     >
       <Ban />
-      Cancelar venta
+      {requestedByCustomer ? "Confirmar cancelación" : "Cancelar venta"}
     </Button>
   );
 }

@@ -3,8 +3,8 @@ import { prisma } from "@/lib/prisma";
 import {
   DELIVERY_FEE,
   addItemsToOrder,
-  cancelPendingOrder,
   createOrder,
+  flagCancellationRequest,
   reconcilePromotions,
   removeItemsFromOrder,
   updatePendingOrderChannel,
@@ -653,10 +653,13 @@ export async function handleCancelOrder(customerId: string, sucursalId: string):
     return "Este cliente no tiene ningún pedido en curso de hoy para cancelar.";
   }
 
-  const cancelled = await cancelPendingOrder(order.id);
-  if (!cancelled) {
+  // No se cancela solo: queda marcado para que un cajero/vendedor lo
+  // confirme a mano desde el CRM (ve un cartel grande). De cara al cliente
+  // la respuesta es la misma que si ya estuviera cancelado.
+  const flagged = await flagCancellationRequest(order.id);
+  if (!flagged) {
     return "Este pedido ya no se puede cancelar por acá (ya salió a entregar o ya se entregó) — avisale al cliente que se comunique directo con el local.";
   }
 
-  return "Pedido cancelado.";
+  return "Listo, cancelamos el pedido.";
 }

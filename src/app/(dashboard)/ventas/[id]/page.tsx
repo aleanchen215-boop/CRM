@@ -1,10 +1,11 @@
 "use client";
 
-import { use } from "react";
+import { use, useEffect } from "react";
 import Link from "next/link";
-import { ArrowLeft, Printer } from "lucide-react";
+import { ArrowLeft, Printer, TriangleAlert } from "lucide-react";
 import { trpc } from "@/lib/trpc/client";
 import { formatCurrency } from "@/lib/format";
+import { cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -76,7 +77,27 @@ export default function OrderDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
-  const { data: order, isLoading } = trpc.orders.getById.useQuery({ id });
+  const { data: order, isLoading } = trpc.orders.getById.useQuery({ id }, { refetchInterval: 5000 });
+  const utils = trpc.useUtils();
+
+  const acknowledge = trpc.orders.acknowledgeChanges.useMutation({
+    onSuccess: async () => {
+      await Promise.all([
+        utils.orders.getById.invalidate({ id }),
+        utils.orders.list.invalidate(),
+      ]);
+    },
+  });
+
+  // Si el cliente modificó el pedido por WhatsApp, marcarlo como "visto" al
+  // abrir el detalle (apaga el "!" en Ventas) — la cancelación pedida por el
+  // cliente NO se limpia acá, solo se resuelve confirmando/cancelando.
+  useEffect(() => {
+    if (order?.modifiedByCustomerAt && !acknowledge.isPending) {
+      acknowledge.mutate({ id });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [order?.modifiedByCustomerAt, id]);
 
   if (isLoading) {
     return (
@@ -93,6 +114,18 @@ export default function OrderDetailPage({
 
   return (
     <div className="flex flex-col gap-6">
+      {order.cancelRequestedByCustomerAt && (
+        <div className="flex items-center gap-3 rounded-lg border-2 border-destructive bg-destructive/10 px-4 py-3 text-destructive print:hidden">
+          <TriangleAlert className="size-6 shrink-0" />
+          <div>
+            <p className="text-lg font-bold">CANCELADO POR EL CLIENTE</p>
+            <p className="text-sm">
+              El cliente pidió cancelar este pedido por WhatsApp. Confirmá la cancelación con el botón de abajo
+              para sacarlo de la vista de Ventas.
+            </p>
+          </div>
+        </div>
+      )}
       <div className="flex items-center justify-between gap-4 print:hidden">
         <div>
           <Link
@@ -122,7 +155,11 @@ export default function OrderDetailPage({
         <div className="flex items-center gap-2">
           <OrderNotifyButton orderId={order.id} channel={order.channel} />
           <OrderStatusSelect orderId={order.id} status={order.status} />
-          <OrderCancelButton orderId={order.id} status={order.status} />
+          <OrderCancelButton
+            orderId={order.id}
+            status={order.status}
+            cancelRequestedByCustomerAt={order.cancelRequestedByCustomerAt}
+          />
           <Button variant="outline" size="sm" onClick={() => window.print()}>
             <Printer />
             Imprimir comprobante
@@ -161,9 +198,20 @@ export default function OrderDetailPage({
             </thead>
             <tbody>
               {order.items.map((item) => (
-                <tr key={item.id} className="border-b last:border-0">
+                <tr
+                  key={item.id}
+                  className={cn(
+                    "border-b last:border-0",
+                    item.addedByCustomerAt && "bg-amber-500/10",
+                  )}
+                >
                   <td className="py-2">
                     {itemLabel(item)}
+                    {item.addedByCustomerAt && (
+                      <span className="ml-2 rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                        agregado por el cliente
+                      </span>
+                    )}
                     <ItemDetail selections={item.selections} />
                   </td>
                   <td className="py-2">{item.quantity}</td>

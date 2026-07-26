@@ -15,7 +15,7 @@ export const PERMISSIONS = {
   // Cancelar una venta ya hecha es más sensible que actualizar su estado
   // normal (afecta caja/reportes) — solo Admin (Cajero/Vendedor de sucursal
   // pueden crear, no borrar/cancelar).
-  "orders:cancel": ["ADMIN"],
+  "orders:cancel": ["ADMIN", "CAJERO", "VENDEDOR_PARACAO", "VENDEDOR_ALMAFUERTE"],
   // Productos = catálogo de venta (nombre/precio). Todos los que venden
   // necesitan verlo; solo Admin lo edita (cambios de precio son sensibles).
   // Depósito no vende — no necesita ver el catálogo, solo Stock/faltantes.

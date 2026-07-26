@@ -6,6 +6,7 @@ import { formatCurrency } from "@/lib/format";
 import { salesChannelValues } from "@/lib/validation/order";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 import { OrderStatusBadge } from "@/components/orders/order-status-badge";
 import { PaymentStatusBadge } from "@/components/orders/payment-status-badge";
 import { NewOrderDialog } from "@/components/orders/new-order-dialog";
@@ -19,7 +20,10 @@ const CHANNEL_LABELS: Record<(typeof salesChannelValues)[number], string> = {
 
 export default function VentasPage() {
   const { selectedSucursalId } = useSucursalSelection();
-  const { data: orders, isLoading } = trpc.orders.list.useQuery({ sucursalId: selectedSucursalId });
+  const { data: orders, isLoading } = trpc.orders.list.useQuery(
+    { sucursalId: selectedSucursalId },
+    { refetchInterval: 5000 },
+  );
 
   return (
     <div className="flex flex-col gap-6">
@@ -55,17 +59,33 @@ export default function VentasPage() {
                   <Link
                     key={order.id}
                     href={`/ventas/${order.id}`}
-                    className="flex flex-col gap-1 rounded-lg border p-3 text-sm transition-colors hover:bg-muted/50"
+                    className={cn(
+                      "flex flex-col gap-1 rounded-lg border p-3 text-sm transition-colors hover:bg-muted/50",
+                      order.cancelRequestedByCustomerAt && "border-destructive/60 bg-destructive/5",
+                    )}
                   >
                     <div className="flex items-center justify-between gap-2">
-                      <span className="font-medium">
+                      <span className="flex items-center gap-1.5 font-medium">
                         {order.customer.firstName} {order.customer.lastName}
+                        {order.modifiedByCustomerAt && !order.cancelRequestedByCustomerAt && (
+                          <span
+                            title="El cliente modificó este pedido"
+                            className="flex h-4 w-4 items-center justify-center rounded-full bg-amber-500 text-[10px] font-bold text-white"
+                          >
+                            !
+                          </span>
+                        )}
                       </span>
                       <div className="flex items-center gap-1.5">
                         <PaymentStatusBadge method={order.method} payments={order.payments} />
                         <OrderStatusBadge status={order.status} />
                       </div>
                     </div>
+                    {order.cancelRequestedByCustomerAt && (
+                      <Badge variant="destructive" className="w-fit">
+                        Cancelado por el cliente
+                      </Badge>
+                    )}
                     <div className="flex items-center justify-between text-muted-foreground">
                       <span>
                         {order._count.items} producto{order._count.items === 1 ? "" : "s"}

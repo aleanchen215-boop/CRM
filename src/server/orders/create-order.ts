@@ -283,13 +283,18 @@ export async function addItemsToOrder(orderId: string, items: OrderInput["items"
       deductions.push(...resolved.deductions);
     }
 
+    const now = new Date();
+    // addedByCustomerAt marca estos renglones como agregados después de
+    // creado el pedido (para resaltarlos en el detalle); modifiedByCustomerAt
+    // en el pedido dispara el aviso "!" en Ventas — esta función solo la usa
+    // el flujo de WhatsApp, nunca una edición manual desde el CRM.
     await tx.orderItem.createMany({
-      data: itemsData.map((data) => ({ ...data, orderId })),
+      data: itemsData.map((data) => ({ ...data, orderId, addedByCustomerAt: now })),
     });
 
     const updated = await tx.order.update({
       where: { id: orderId },
-      data: { total: Number(order.total) + addedTotal },
+      data: { total: Number(order.total) + addedTotal, modifiedByCustomerAt: now },
     });
 
     await applySupplyDeductions(tx, order.sucursalId, deductions);
@@ -345,7 +350,7 @@ export async function removeItemsFromOrder(
 
     const updated = await tx.order.update({
       where: { id: orderId },
-      data: { total: Number(order.total) - removedTotal },
+      data: { total: Number(order.total) - removedTotal, modifiedByCustomerAt: new Date() },
     });
 
     await applySupplyDeductions(tx, order.sucursalId, restored, "ENTRADA");
@@ -427,6 +432,20 @@ export async function cancelPendingOrder(orderId: string) {
   if (!order || !isModifiable(order.status)) return null;
 
   return prisma.order.update({ where: { id: orderId }, data: { status: "CANCELADO" } });
+}
+
+// El cliente avisa por WhatsApp que ya no quiere el pedido — NO se cancela
+// solo: queda visible con un cartel grande hasta que un cajero/vendedor lo
+// confirme a mano (cancelPendingOrder). Devuelve null si ya no se puede
+// tocar (mismo criterio que el resto de las modificaciones del cliente).
+export async function flagCancellationRequest(orderId: string) {
+  const order = await prisma.order.findUnique({ where: { id: orderId } });
+  if (!order || !isModifiable(order.status)) return null;
+
+  return prisma.order.update({
+    where: { id: orderId },
+    data: { cancelRequestedByCustomerAt: new Date() },
+  });
 }
 
 // Después de agregar productos sueltos a un pedido (ej. el cliente ya tenía

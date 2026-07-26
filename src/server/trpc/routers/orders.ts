@@ -64,6 +64,23 @@ export const ordersRouter = router({
       };
     }),
 
+  // Limpia el aviso "!" de modificado-por-el-cliente al abrir el detalle —
+  // no es una escritura de negocio real, solo "ya lo vi", por eso alcanza
+  // con orders:read en vez de orders:write.
+  acknowledgeChanges: requirePermission("orders:read")
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      await ctx.prisma.orderItem.updateMany({
+        where: { orderId: input.id, addedByCustomerAt: { not: null } },
+        data: { addedByCustomerAt: null },
+      });
+      const order = await ctx.prisma.order.update({
+        where: { id: input.id },
+        data: { modifiedByCustomerAt: null },
+      });
+      return toNumber(order);
+    }),
+
   create: requirePermission("orders:write")
     .input(orderInputSchema)
     .mutation(async ({ ctx, input }) => {
