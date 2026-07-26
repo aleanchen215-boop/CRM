@@ -43,6 +43,12 @@ export const PERMISSIONS = {
   "automations:write": ["ADMIN"],
   "reports:read": ["ADMIN", "VENDEDOR", "SUPERVISOR"],
   "users:manage": ["ADMIN"],
+  // Abrir/cerrar el turno de caja de su sucursal y registrar retiros a
+  // caja fuerte — Cajero opera el suyo, Admin puede operar cualquiera.
+  "turnos:operate": ["ADMIN", "CAJERO"],
+  // Ver el historial de cierres de turno (con la diferencia contado vs.
+  // esperado) y de retiros de ambas sucursales — solo Admin.
+  "finanzas:audit": ["ADMIN"],
 } as const satisfies Record<string, readonly UserRole[]>;
 
 export type PermissionAction = keyof typeof PERMISSIONS;

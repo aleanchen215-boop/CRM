@@ -6,6 +6,7 @@ import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/s
 import { Separator } from "@/components/ui/separator";
 import { SucursalProvider } from "@/components/layout/sucursal-context";
 import { SucursalSwitcher } from "@/components/layout/sucursal-switcher";
+import { TurnoReminderBanner } from "@/components/turnos/turno-reminder-banner";
 
 export default async function DashboardLayout({
   children,
@@ -42,7 +43,10 @@ export default async function DashboardLayout({
               <SucursalSwitcher />
             </div>
           </header>
-          <main className="flex-1 p-6">{children}</main>
+          <main className="flex-1 p-6">
+            <TurnoReminderBanner />
+            {children}
+          </main>
         </SidebarInset>
       </SidebarProvider>
     </SucursalProvider>

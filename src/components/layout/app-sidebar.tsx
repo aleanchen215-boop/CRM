@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   BarChart3,
   Boxes,
+  Landmark,
   LayoutDashboard,
   MessageCircle,
   Settings,
@@ -26,6 +27,7 @@ import {
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
 import { UserMenu } from "@/components/layout/user-menu";
+import { CerrarTurnoButton } from "@/components/turnos/cerrar-turno-button";
 import type { UserRole } from "@/generated/prisma/enums";
 
 // Cajero, Productor y Depósito son roles acotados a un par de pantallas
@@ -98,6 +100,12 @@ const NAV_ITEMS = [
     icon: BarChart3,
     roles: ["ADMIN", "VENDEDOR", "SUPERVISOR"],
   },
+  {
+    href: "/finanzas",
+    label: "Finanzas",
+    icon: Landmark,
+    roles: ["ADMIN", "CAJERO"],
+  },
 ] as const satisfies ReadonlyArray<{
   href: string;
   label: string;
@@ -162,6 +170,11 @@ export function AppSidebar({ user }: { user: AppSidebarUser }) {
                 <Settings />
                 <span>Configuración</span>
               </SidebarMenuButton>
+            </SidebarMenuItem>
+          )}
+          {user.role === "CAJERO" && (
+            <SidebarMenuItem>
+              <CerrarTurnoButton />
             </SidebarMenuItem>
           )}
           <SidebarMenuItem>
