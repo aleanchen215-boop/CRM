@@ -481,46 +481,76 @@ export async function reconcilePromotions(orderId: string) {
     });
     if (promotions.length === 0) return order;
 
-    type PoolEntry = { quantity: number; categoryId: string | null; name: string };
+    type PoolEntry = { categoryId: string | null; name: string; price: number };
     const pool = new Map<string, PoolEntry>();
+    const initialQuantities = new Map<string, number>();
     for (const item of looseItems) {
       if (!item.productId) continue;
-      const entry = pool.get(item.productId) ?? {
-        quantity: 0,
-        categoryId: item.product?.categoryId ?? null,
-        name: item.product?.name ?? "",
-      };
-      entry.quantity += item.quantity;
-      pool.set(item.productId, entry);
+      if (!pool.has(item.productId)) {
+        pool.set(item.productId, {
+          categoryId: item.product?.categoryId ?? null,
+          name: item.product?.name ?? "",
+          price: Number(item.product?.price ?? 0),
+        });
+      }
+      initialQuantities.set(item.productId, (initialQuantities.get(item.productId) ?? 0) + item.quantity);
     }
 
-    const consumed = new Map<string, number>();
-    const available = (productId: string) => (pool.get(productId)?.quantity ?? 0) - (consumed.get(productId) ?? 0);
-    const consume = (productId: string, qty: number) => consumed.set(productId, (consumed.get(productId) ?? 0) + qty);
+    type PromoUse = { promotionId: string; price: number; selections: Record<string, unknown>[] };
 
-    const formed: { promotionId: string; price: number; selections: Record<string, unknown>[] }[] = [];
+    // Precio de dejar este estado tal cual, sin armar ninguna promo más
+    // (cada unidad restante se cobra a precio de lista).
+    function stateCost(state: Map<string, number>): number {
+      let cost = 0;
+      for (const [productId, qty] of state) cost += qty * (pool.get(productId)?.price ?? 0);
+      return cost;
+    }
 
-    let matchedSomething = true;
-    while (matchedSomething) {
-      matchedSomething = false;
+    function stateKey(state: Map<string, number>): string {
+      return [...state.entries()]
+        .filter(([, qty]) => qty > 0)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([id, qty]) => `${id}:${qty}`)
+        .join(",");
+    }
+
+    // Busca, entre todas las formas posibles de combinar las promos activas
+    // sobre lo que sobró suelto, la que deja el costo TOTAL más bajo (promos
+    // elegidas + lo que queda suelto a precio de lista) — no se queda con la
+    // primera promo que matchea. Ej.: con 3 muzzarellas sueltas, en vez de
+    // aplicar "2 Muzzarellas" y dejar 1 suelta, también prueba "3
+    // Muzzarellas" completa y elige la que sale más barata en total.
+    // Memoiza por estado (qué queda de cada producto) porque distintos
+    // caminos de promos pueden llegar al mismo estado intermedio.
+    const memo = new Map<string, { cost: number; uses: PromoUse[] }>();
+
+    function solve(state: Map<string, number>): { cost: number; uses: PromoUse[] } {
+      const key = stateKey(state);
+      const cached = memo.get(key);
+      if (cached) return cached;
+
+      let best: { cost: number; uses: PromoUse[] } = { cost: stateCost(state), uses: [] };
 
       for (const promotion of promotions) {
         const fijoParts = promotion.items.filter((i) => i.kind === "FIJO");
         const variableParts = promotion.items.filter((i) => i.kind === "VARIABLE");
 
-        const fijoOk = fijoParts.every((part) => part.productId && available(part.productId) >= part.quantity);
-        const variableOk = variableParts.every((part) => {
-          const total = [...pool.entries()]
-            .filter(([, entry]) => entry.categoryId === part.categoryId)
-            .reduce((sum, [productId]) => sum + available(productId), 0);
-          return total >= part.quantity;
-        });
+        const fijoOk = fijoParts.every(
+          (part) => part.productId && (state.get(part.productId) ?? 0) >= part.quantity,
+        );
+        const categoryAvailable = (categoryId: string | null) =>
+          [...state.entries()]
+            .filter(([productId]) => pool.get(productId)?.categoryId === categoryId)
+            .reduce((sum, [, qty]) => sum + qty, 0);
+        const variableOk = variableParts.every((part) => categoryAvailable(part.categoryId) >= part.quantity);
         if (!fijoOk || !variableOk) continue;
 
+        const nextState = new Map(state);
         const selections: Record<string, unknown>[] = [];
+
         for (const part of fijoParts) {
           if (!part.productId) continue;
-          consume(part.productId, part.quantity);
+          nextState.set(part.productId, (nextState.get(part.productId) ?? 0) - part.quantity);
           selections.push({
             type: "FIJO",
             productId: part.productId,
@@ -528,27 +558,59 @@ export async function reconcilePromotions(orderId: string) {
             cantidad: part.quantity,
           });
         }
+
         for (const part of variableParts) {
           let remaining = part.quantity;
+          // Prioriza consumir para la promo los productos más caros de la
+          // categoría — así lo que queda suelto (a precio de lista) es lo
+          // más barato posible, en vez de al revés.
+          const candidates = [...nextState.entries()]
+            .filter(([productId]) => pool.get(productId)?.categoryId === part.categoryId)
+            .sort(([a], [b]) => (pool.get(b)?.price ?? 0) - (pool.get(a)?.price ?? 0));
+
           const chosen: { productId: string; nombre: string }[] = [];
-          for (const [productId, entry] of pool.entries()) {
+          for (const [productId, availableQty] of candidates) {
             if (remaining <= 0) break;
-            if (entry.categoryId !== part.categoryId) continue;
-            const take = Math.min(available(productId), remaining);
+            const take = Math.min(availableQty, remaining);
             if (take <= 0) continue;
-            consume(productId, take);
-            for (let i = 0; i < take; i++) chosen.push({ productId, nombre: entry.name });
+            nextState.set(productId, availableQty - take);
+            for (let i = 0; i < take; i++) chosen.push({ productId, nombre: pool.get(productId)?.name ?? "" });
             remaining -= take;
           }
           selections.push({ type: "VARIABLE", categoria: "", productos: chosen });
         }
 
-        formed.push({ promotionId: promotion.id, price: Number(promotion.price), selections });
-        matchedSomething = true;
+        const rest = solve(nextState);
+        const cost = Number(promotion.price) + rest.cost;
+        if (cost < best.cost) {
+          best = {
+            cost,
+            uses: [{ promotionId: promotion.id, price: Number(promotion.price), selections }, ...rest.uses],
+          };
+        }
       }
+
+      memo.set(key, best);
+      return best;
     }
 
+    const { uses: formed } = solve(initialQuantities);
     if (formed.length === 0) return order;
+
+    const consumed = new Map<string, number>();
+    for (const use of formed) {
+      for (const selection of use.selections) {
+        if (selection["type"] === "FIJO") {
+          const productId = selection["productId"] as string;
+          const cantidad = selection["cantidad"] as number;
+          consumed.set(productId, (consumed.get(productId) ?? 0) + cantidad);
+        } else if (selection["type"] === "VARIABLE") {
+          for (const producto of selection["productos"] as { productId: string }[]) {
+            consumed.set(producto.productId, (consumed.get(producto.productId) ?? 0) + 1);
+          }
+        }
+      }
+    }
 
     // Reduce/borra los renglones sueltos según lo que se consumió.
     for (const [productId, consumedQty] of consumed) {
