@@ -40,6 +40,10 @@ export const PERMISSIONS = {
   // existe (nunca crear/editar/sacar) y marcar un faltante como ya
   // llevado — no es lo mismo que stock:write completo.
   "stock:add": ["ADMIN", "REPARTIDOR"],
+  // Anotar un insumo faltante (no resolverlo) — el vendedor de cada
+  // sucursal puede avisar que algo se está por terminar, pero no marcarlo
+  // como ya llevado/comprado (eso sigue siendo stock:add/stock:write).
+  "stock:reportMissing": ["ADMIN", "VENDEDOR_PARACAO", "VENDEDOR_ALMAFUERTE"],
   "automations:write": ["ADMIN"],
   "reports:read": ["ADMIN", "VENDEDOR", "SUPERVISOR"],
   "users:manage": ["ADMIN"],

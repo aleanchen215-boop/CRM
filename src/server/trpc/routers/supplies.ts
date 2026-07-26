@@ -181,7 +181,9 @@ export const suppliesRouter = router({
       });
     }),
 
-  missingCreate: requirePermission("stock:write")
+  // stock:reportMissing (no stock:write): el vendedor de cada sucursal
+  // también puede anotar un faltante, sin poder crear/editar insumos.
+  missingCreate: requirePermission("stock:reportMissing")
     .input(z.object({ text: z.string().trim().min(1).max(200), sucursalId: z.string().optional() }))
     .mutation(async ({ ctx, input }) => {
       const sucursalId = resolveSucursalForWrite(ctx.user, input.sucursalId);

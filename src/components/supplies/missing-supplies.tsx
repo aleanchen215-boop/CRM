@@ -14,16 +14,19 @@ export function MissingSupplies({ sucursalId: fixedSucursalId }: { sucursalId?: 
   const [text, setText] = useState("");
   const utils = trpc.useUtils();
   const { data: me } = trpc.system.me.useQuery();
-  // Anotar un faltante nuevo sigue siendo solo Admin; marcarlo como ya
-  // llevado/comprado también lo puede hacer Repartidor (stock:add).
-  const canCreate = useCanPerform("stock:write");
+  // Anotar un faltante: Admin, y el vendedor de cada sucursal (solo la
+  // suya). Marcarlo como ya llevado/comprado es aparte (stock:add: Admin
+  // y Repartidor) — el vendedor puede avisar, no resolver.
+  const canCreate = useCanPerform("stock:reportMissing");
   const canResolve = useCanPerform("stock:add");
   const resolveLabel = me?.role === "REPARTIDOR" ? "Llevado" : "Recibido";
   const { selectedSucursalId: globalSelectedSucursalId } = useSucursalSelection();
   // Si se pasa sucursalId explícito (ej. una sección fija de "Paracao"),
-  // manda por sobre el selector global de arriba.
-  const selectedSucursalId = fixedSucursalId ?? globalSelectedSucursalId;
-  const showSucursalName = !fixedSucursalId && !selectedSucursalId;
+  // manda por sobre el selector global de arriba; si el usuario está atado
+  // a una sola sucursal (Vendedor de sucursal), usa esa sin pedirle que
+  // elija nada — el selector global ni le aparece.
+  const selectedSucursalId = fixedSucursalId ?? me?.sucursalId ?? globalSelectedSucursalId;
+  const showSucursalName = !fixedSucursalId && !me?.sucursalId && !selectedSucursalId;
 
   const { data: items, isLoading } = trpc.supplies.missingList.useQuery({
     sucursalId: selectedSucursalId,
