@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { OrderStatusBadge } from "@/components/orders/order-status-badge";
 import { PaymentStatusBadge } from "@/components/orders/payment-status-badge";
 import { OrderStatusSelect } from "@/components/orders/order-status-select";
+import { PaymentMethodSelect } from "@/components/orders/payment-method-select";
 import { OrderNotifyButton } from "@/components/orders/order-notify-button";
 import { OrderCancelButton } from "@/components/orders/order-cancel-button";
 import { EditOrderDialog } from "@/components/orders/edit-order-dialog";
@@ -214,7 +215,15 @@ export default function OrderDetailPage({
         <div className="flex items-center gap-2">
           <OrderNotifyButton orderId={order.id} channel={order.channel} />
           {canEdit && MODIFIABLE_STATUSES.has(order.status) && (
-            <EditOrderDialog orderId={order.id} items={order.items} sucursalId={order.sucursalId} />
+            <>
+              <EditOrderDialog orderId={order.id} items={order.items} sucursalId={order.sucursalId} />
+              <PaymentMethodSelect
+                orderId={order.id}
+                method={order.method}
+                channel={order.channel}
+                channelSource={order.channelSource}
+              />
+            </>
           )}
           <OrderStatusSelect orderId={order.id} status={order.status} />
           <OrderCancelButton

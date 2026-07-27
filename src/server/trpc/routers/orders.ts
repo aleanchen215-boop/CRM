@@ -1,11 +1,18 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { orderInputSchema, orderItemInputSchema, orderStatusUpdateSchema, getAllowedPaymentMethods } from "@/lib/validation/order";
+import { orderInputSchema, orderItemInputSchema, orderStatusUpdateSchema, getAllowedPaymentMethods, paymentMethodValues } from "@/lib/validation/order";
 import type { OrderInput } from "@/lib/validation/order";
 import { requirePermission, router } from "@/server/trpc/trpc";
 import { resolveSucursalFilter, resolveSucursalForWrite } from "@/server/trpc/sucursal";
 import { sendWhatsappTextMessage } from "@/server/integrations/whatsapp/client";
-import { createOrder, addItemsToOrder, removeOrderItemRow, reconcilePromotions, cancelOrder } from "@/server/orders/create-order";
+import {
+  createOrder,
+  addItemsToOrder,
+  removeOrderItemRow,
+  reconcilePromotions,
+  cancelOrder,
+  updatePendingOrderPayment,
+} from "@/server/orders/create-order";
 import { getAvailableStock, computeRequestedQuantities } from "@/server/stock/availability";
 import { getOrCreateWalkInCustomer } from "@/server/customers/walk-in";
 import type { PrismaClient } from "@/generated/prisma/client";
@@ -121,6 +128,38 @@ export const ordersRouter = router({
         data: { staffNotes: input.staffNotes || null },
       });
       return toNumber(order);
+    }),
+
+  // Cambiar el método de pago de un pedido ya creado — ej. el cliente dijo
+  // que pagaba en efectivo al cargar la venta y terminó pagando con QR/MP.
+  // Solo mientras el pedido siga en un estado modificable (ver isModifiable
+  // en create-order.ts). El vuelto (changeFor) se limpia si deja de ser
+  // efectivo; para efectivo no se pide acá, se puede anotar aparte.
+  updatePayment: requirePermission("orders:write")
+    .input(z.object({ id: z.string(), method: z.enum(paymentMethodValues) }))
+    .mutation(async ({ ctx, input }) => {
+      const order = await ctx.prisma.order.findUnique({ where: { id: input.id } });
+      if (!order) throw new TRPCError({ code: "NOT_FOUND" });
+
+      const allowedMethods = getAllowedPaymentMethods(order.channel, order.channelSource ?? undefined);
+      if (!allowedMethods.includes(input.method)) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Ese método de pago no corresponde a este canal.",
+        });
+      }
+
+      const updated = await updatePendingOrderPayment(input.id, {
+        method: input.method,
+        changeFor: input.method === "EFECTIVO" ? undefined : null,
+      });
+      if (!updated) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Este pedido ya no se puede modificar (ya está en preparación o ya salió).",
+        });
+      }
+      return toNumber(updated);
     }),
 
   create: requirePermission("orders:write")
