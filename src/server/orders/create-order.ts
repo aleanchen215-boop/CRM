@@ -166,12 +166,12 @@ async function resolveOrderItem(
 
 // Descuenta Stock según la receta cargada en ProductSupplyUsage (si el
 // producto no tiene receta, no pasa nada — no todos los productos la
-// necesitan). Deja que la cantidad de un insumo quede en negativo en vez de
-// bloquear la venta: es más importante poder tomar el pedido que tener el
-// conteo de stock perfecto, el negativo queda como aviso visual para
-// reponer/corregir.
-// mode SALIDA: se vendió (resta). mode ENTRADA: se sacó del pedido después
-// de haber sido descontado (devuelve al stock).
+// necesitan). A propósito de un insumo NUNCA se deja ir a negativo: si no
+// alcanza, se corta la venta (ver el update condicional más abajo) — ni por
+// WhatsApp ni manual desde el CRM se puede vender lo que no hay.
+// mode SALIDA: se vendió (resta, puede fallar si no alcanza). mode ENTRADA:
+// se sacó del pedido después de haber sido descontado (devuelve al stock,
+// nunca falla).
 async function applySupplyDeductions(
   tx: Prisma.TransactionClient,
   sucursalId: string,
@@ -192,6 +192,7 @@ async function applySupplyDeductions(
       productId: { in: [...totalsByProduct.keys()] },
       supply: { sucursalId },
     },
+    include: { supply: true },
   });
 
   const totalsBySupply = new Map<string, number>();
@@ -199,13 +200,36 @@ async function applySupplyDeductions(
     const productQty = totalsByProduct.get(usage.productId) ?? 0;
     totalsBySupply.set(usage.supplyId, (totalsBySupply.get(usage.supplyId) ?? 0) + usage.quantity * productQty);
   }
+  const supplyById = new Map(usages.map((usage) => [usage.supplyId, usage.supply]));
 
   for (const [supplyId, quantity] of totalsBySupply) {
     if (quantity <= 0) continue;
-    await tx.supply.update({
-      where: { id: supplyId },
-      data: { quantity: mode === "SALIDA" ? { decrement: quantity } : { increment: quantity } },
-    });
+
+    if (mode === "SALIDA") {
+      // Update condicional (WHERE quantity >= lo pedido), no un decrement
+      // ciego: es lo único que garantiza que el insumo nunca quede negativo
+      // ni siquiera con dos ventas simultáneas del último que queda — un
+      // chequeo previo por separado (ver getAvailableStock) podría pasar en
+      // los dos pedidos si se consultan al mismo tiempo, esto no.
+      const result = await tx.supply.updateMany({
+        where: { id: supplyId, quantity: { gte: quantity } },
+        data: { quantity: { decrement: quantity } },
+      });
+      if (result.count === 0) {
+        const current = await tx.supply.findUnique({ where: { id: supplyId } });
+        const name = supplyById.get(supplyId)?.name ?? current?.name ?? "un insumo";
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `No hay stock suficiente de "${name}" — quedan ${current?.quantity ?? 0}, hacen falta ${quantity}.`,
+        });
+      }
+    } else {
+      await tx.supply.update({
+        where: { id: supplyId },
+        data: { quantity: { increment: quantity } },
+      });
+    }
+
     await tx.supplyMovement.create({
       data: { supplyId, type: mode, quantity, reason: mode === "SALIDA" ? "Venta" : "Corrección de pedido" },
     });
