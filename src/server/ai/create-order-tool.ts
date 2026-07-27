@@ -136,13 +136,17 @@ function parseScheduledTime(hhmm: string | undefined): Date | null {
   return new Date(`${today}T${padded}:00-03:00`);
 }
 
-function findBestMatch<T>(items: T[], name: (item: T) => string, query: string): T | undefined {
+// Tres niveles de matching (exacto, contiene, está-contenido) que devuelve
+// TODOS los que empatan en el nivel ganador en vez de quedarse con el
+// primero — así se puede distinguir "un solo producto matcheó" de "varios
+// matchean y hay que preguntar cuál" (ver findProductMatches).
+function findAllMatches<T>(items: T[], name: (item: T) => string, query: string): T[] {
   const normalizedQuery = normalize(query);
-  return (
-    items.find((item) => normalize(name(item)) === normalizedQuery) ??
-    items.find((item) => normalize(name(item)).includes(normalizedQuery)) ??
-    items.find((item) => normalizedQuery.includes(normalize(name(item))))
-  );
+  const exact = items.filter((item) => normalize(name(item)) === normalizedQuery);
+  if (exact.length > 0) return exact;
+  const contains = items.filter((item) => normalize(name(item)).includes(normalizedQuery));
+  if (contains.length > 0) return contains;
+  return items.filter((item) => normalizedQuery.includes(normalize(name(item))));
 }
 
 // Muchos clientes abrevian el sabor con el SKU (ej. "EP" por Entraña y
@@ -153,13 +157,25 @@ function findProductMatch<T extends { name: string; sku: string | null }>(
   products: T[],
   query: string,
 ): T | undefined {
+  return findProductMatches(products, query)[0];
+}
+
+// Igual que findProductMatch pero devuelve todos los productos que empatan
+// en el nivel de matching ganador, para poder detectar ambigüedad (ej. el
+// cliente dice "carne" y hay Carne Con Aceitunas, Carne Dulce y Carne
+// Cortada a Cuchillo — no hay forma de saber cuál quiso sin preguntarle).
+function findProductMatches<T extends { name: string; sku: string | null }>(
+  products: T[],
+  query: string,
+): T[] {
   // "sprite"/"fanta" no existen como producto propio — se venden como
   // Coca-Cola del tamaño pedido (instrucción del dueño), así que se
   // resuelven acá mismo en vez de depender de que el modelo lo recuerde.
   const aliasedQuery = aliasDrinkBrands(query);
   const normalizedQuery = normalize(aliasedQuery);
   const skuMatch = products.find((product) => product.sku && normalize(product.sku) === normalizedQuery);
-  return skuMatch ?? findBestMatch(products, (p) => p.name, aliasedQuery);
+  if (skuMatch) return [skuMatch];
+  return findAllMatches(products, (p) => p.name, aliasedQuery);
 }
 
 // El modelo a veces mete la cantidad adentro del texto de "nombre" (ej.
@@ -183,6 +199,16 @@ function extractLeadingQuantity(nombre: string): { quantity?: number; rest: stri
 function findExactPromotion<T>(items: T[], name: (item: T) => string, query: string): T | undefined {
   const normalizedQuery = normalize(query);
   return items.find((item) => normalize(name(item)) === normalizedQuery);
+}
+
+// Cuando un sabor dicho por el cliente matchea más de un producto (ej.
+// "carne" con Carne Con Aceitunas / Carne Dulce / Carne Cortada a Cuchillo
+// cargadas), nunca hay que elegir uno por nuestra cuenta — se corta la
+// creación del pedido acá con un error que lista las opciones, para que el
+// modelo se lo pregunte al cliente en vez de adivinar.
+function ambiguousFlavorError(query: string, matches: { name: string }[]): string {
+  const options = matches.map((m) => m.name).join(", ");
+  return `"${query}" es ambiguo, puede ser cualquiera de estos sabores: ${options} — preguntale al cliente cuál de esos quiere exactamente (no elijas vos uno) antes de reintentar.`;
 }
 
 
@@ -222,16 +248,24 @@ async function resolveItemsForOrder(
     // mitad2 presente = pizza mitad y mitad (dos sabores). cantidad=0.5 sin
     // mitad2 = media pizza de un solo sabor, sola.
     if (item.mitad2?.trim() || item.cantidad === 0.5) {
-      const product1 = findProductMatch(products, item.nombre);
-      if (!product1) {
+      const matches1 = findProductMatches(products, item.nombre);
+      if (matches1.length === 0) {
         return { error: `No encontré "${item.nombre}" en el catálogo — confirmá el sabor con el cliente antes de reintentar.` };
       }
+      if (matches1.length > 1) {
+        return { error: ambiguousFlavorError(item.nombre, matches1) };
+      }
+      const product1 = matches1[0];
       let product2: typeof product1 | undefined;
       if (item.mitad2?.trim()) {
-        product2 = findProductMatch(products, item.mitad2);
-        if (!product2) {
+        const matches2 = findProductMatches(products, item.mitad2);
+        if (matches2.length === 0) {
           return { error: `No encontré "${item.mitad2}" en el catálogo — confirmá el segundo sabor con el cliente antes de reintentar.` };
         }
+        if (matches2.length > 1) {
+          return { error: ambiguousFlavorError(item.mitad2, matches2) };
+        }
+        product2 = matches2[0];
       }
       orderItems.push({
         kind: "MEDIA_MEDIA",
@@ -250,7 +284,12 @@ async function resolveItemsForOrder(
 
     if (!promotion) {
       const { quantity: quantityFromName, rest: nameForMatch } = extractLeadingQuantity(item.nombre);
-      let product = findProductMatch(products, nameForMatch) ?? findProductMatch(products, item.nombre);
+      let matches = findProductMatches(products, nameForMatch);
+      if (matches.length === 0) matches = findProductMatches(products, item.nombre);
+      if (matches.length > 1) {
+        return { error: ambiguousFlavorError(item.nombre, matches) };
+      }
+      let product = matches[0];
       let quantity = item.cantidad && item.cantidad > 0 ? item.cantidad : (quantityFromName ?? 1);
 
       // El modelo a veces manda un producto suelto con cantidad > 1 como si
@@ -302,10 +341,14 @@ async function resolveItemsForOrder(
       // un elemento por unidad como antes (cantidad implícita 1).
       const { quantity: leadingQty, rest: saborName } = extractLeadingQuantity(saborEntry);
       const repeatCount = leadingQty && leadingQty > 0 ? leadingQty : 1;
-      const match = findProductMatch(products, saborName);
-      if (!match) {
+      const saborMatches = findProductMatches(products, saborName);
+      if (saborMatches.length === 0) {
         return { error: `No encontré el sabor "${saborEntry}" para la promo "${promotion.name}" — confirmá el nombre con el cliente antes de reintentar.` };
       }
+      if (saborMatches.length > 1) {
+        return { error: ambiguousFlavorError(saborName, saborMatches) };
+      }
+      const match = saborMatches[0];
       for (let i = 0; i < repeatCount; i++) {
         const slot = [...slots.values()].find(
           (entry) => entry.categoryId === match.categoryId && entry.chosen.length < entry.quantity,
