@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Controller, useFieldArray, useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
-import { ArrowLeft, Plus, UserPlus } from "lucide-react";
+import { ArrowLeft, Plus } from "lucide-react";
 import {
   paymentMethodValues,
   salesChannelValues,
@@ -21,7 +21,6 @@ import {
   Select,
   SelectContent,
   SelectItem,
-  SelectSeparator,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -32,6 +31,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { CustomerForm } from "@/components/customers/customer-form";
+import { CustomerCombobox } from "@/components/customers/customer-combobox";
 import { OrderItemRow } from "@/components/orders/order-item-row";
 import { useSucursalSelection } from "@/components/layout/sucursal-context";
 
@@ -52,7 +52,6 @@ const CHANNEL_LABELS: Record<(typeof salesChannelValues)[number], string> = {
   APPS: "Apps",
 };
 
-const NEW_CUSTOMER_VALUE = "__new__";
 
 export function OrderForm({
   channel,
@@ -131,7 +130,10 @@ export function OrderForm({
   });
 
   const onSubmit = form.handleSubmit((values) => {
-    if (!values.customerId) {
+    // Mostrador es venta anónima habitual (cliente que pasa y compra) — no
+    // hace falta cargarle un cliente. Delivery/Apps sí lo necesitan (hay que
+    // saber a quién/dónde enviar).
+    if (!values.customerId && channel !== "MOSTRADOR") {
       toast.error("Elegí un cliente.");
       return;
     }
@@ -149,7 +151,7 @@ export function OrderForm({
       return;
     }
     create.mutate({
-      customerId: values.customerId,
+      customerId: values.customerId || undefined,
       method: values.method,
       channel,
       channelSource,
@@ -177,49 +179,33 @@ export function OrderForm({
       <form onSubmit={onSubmit} className="flex flex-col gap-4">
         <FieldGroup className="gap-3.5">
           <Field>
-            <FieldLabel htmlFor="customerId">Cliente</FieldLabel>
+            <FieldLabel htmlFor="customerId">
+              Cliente{channel === "MOSTRADOR" ? " (opcional)" : ""}
+            </FieldLabel>
             <Controller
               control={form.control}
               name="customerId"
               render={({ field }) => (
-                <Select
+                <CustomerCombobox
                   value={field.value}
-                  onValueChange={(value) => {
-                    if (value === NEW_CUSTOMER_VALUE) {
-                      setNewCustomerOpen(true);
-                      return;
-                    }
-                    field.onChange(value);
+                  allowClear={channel === "MOSTRADOR"}
+                  placeholder={
+                    channel === "MOSTRADOR"
+                      ? "Buscar por nombre o teléfono (opcional)…"
+                      : "Buscar por nombre o teléfono…"
+                  }
+                  onCreateNew={() => setNewCustomerOpen(true)}
+                  onChange={(customerId) => {
+                    field.onChange(customerId);
                     // Precarga la dirección guardada del cliente si el pedido
                     // es delivery y todavía no se escribió nada — no pisa lo
                     // que el usuario ya haya tipeado.
                     if (channel === "DELIVERY" && !form.getValues("shippingAddress")) {
-                      const customer = customers?.find((c) => c.id === value);
+                      const customer = customers?.find((c) => c.id === customerId);
                       if (customer?.address) form.setValue("shippingAddress", customer.address);
                     }
                   }}
-                >
-                  <SelectTrigger id="customerId" className="w-full">
-                    <SelectValue placeholder="Elegir cliente…">
-                      {(id: string) => {
-                        const customer = customers?.find((c) => c.id === id);
-                        return customer ? `${customer.firstName} ${customer.lastName}` : id;
-                      }}
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={NEW_CUSTOMER_VALUE}>
-                      <UserPlus className="size-4" />
-                      Nuevo cliente…
-                    </SelectItem>
-                    <SelectSeparator />
-                    {customers?.map((customer) => (
-                      <SelectItem key={customer.id} value={customer.id}>
-                        {customer.firstName} {customer.lastName}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                />
               )}
             />
           </Field>

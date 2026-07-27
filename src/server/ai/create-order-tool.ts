@@ -408,7 +408,10 @@ async function resolveItemsForOrder(
       const productName = product?.name ?? "ese sabor";
 
       return {
-        error: `Solo quedan ${available} unidad(es) de "${productName}" en stock (el pedido tiene ${requested}) — avisale al cliente cuánto queda de verdad y preguntale con qué sabor quiere completar los ${requested - available} que faltan. NO le sugieras ni le listes sabores puntuales, solo preguntá.`,
+        error:
+          available === 0
+            ? `No tenemos stock de "${productName}" — avisale al cliente que no queda ese sabor y preguntale con qué lo quiere reemplazar. NO le sugieras ni le listes sabores puntuales, solo preguntá.`
+            : `Solo quedan ${available} unidad(es) de "${productName}" en stock (el pedido tiene ${requested}) — avisale al cliente cuánto queda de verdad y preguntale con qué sabor quiere completar los ${requested - available} que faltan. NO le sugieras ni le listes sabores puntuales, solo preguntá.`,
       };
     }
   }

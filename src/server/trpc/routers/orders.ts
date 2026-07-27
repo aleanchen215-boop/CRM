@@ -7,6 +7,7 @@ import { resolveSucursalFilter, resolveSucursalForWrite } from "@/server/trpc/su
 import { sendWhatsappTextMessage } from "@/server/integrations/whatsapp/client";
 import { createOrder, addItemsToOrder, removeOrderItemRow, reconcilePromotions, cancelOrder } from "@/server/orders/create-order";
 import { getAvailableStock, computeRequestedQuantities } from "@/server/stock/availability";
+import { getOrCreateWalkInCustomer } from "@/server/customers/walk-in";
 import type { PrismaClient } from "@/generated/prisma/client";
 
 function toNumber<T extends { total: unknown }>(order: T) {
@@ -133,9 +134,20 @@ export const ordersRouter = router({
         });
       }
 
+      // Solo Mostrador admite venta sin cliente cargado (walk-in) — se
+      // resuelve a un cliente genérico compartido. Delivery/Apps siguen
+      // necesitando uno real (hay que saber a quién/dónde enviar).
+      let customerId = input.customerId;
+      if (!customerId) {
+        if (input.channel !== "MOSTRADOR") {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Elegí un cliente para este pedido." });
+        }
+        customerId = (await getOrCreateWalkInCustomer(ctx.prisma)).id;
+      }
+
       const sucursalId = resolveSucursalForWrite(ctx.user, input.sucursalId);
       await assertStockAvailable(ctx.prisma, input.items, sucursalId);
-      const order = await createOrder({ ...input, sucursalId, employeeId: ctx.user.id });
+      const order = await createOrder({ ...input, customerId, sucursalId, employeeId: ctx.user.id });
       return toNumber(order);
     }),
 

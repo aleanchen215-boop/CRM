@@ -236,8 +236,12 @@ async function applySupplyDeductions(
   }
 }
 
-export type CreateOrderInput = Omit<OrderInput, "sucursalId"> & {
+export type CreateOrderInput = Omit<OrderInput, "sucursalId" | "customerId"> & {
   sucursalId: string;
+  // OrderInput.customerId es opcional (Mostrador puede venir sin cliente) —
+  // acá ya tiene que venir resuelto (ver getOrCreateWalkInCustomer, se usa
+  // en el router antes de llamar a createOrder).
+  customerId: string;
   employeeId?: string;
   changeFor?: number;
   // Solo tiene sentido cuando channel = DELIVERY.
