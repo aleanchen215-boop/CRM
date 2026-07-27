@@ -5,12 +5,41 @@ import { sendWhatsappTextMessage } from "@/server/integrations/whatsapp/client";
 import { generateAiReply, type ChatTurn } from "@/server/ai/assistant";
 import type { YCloudInboundMessageEvent } from "@/server/integrations/whatsapp/types";
 
+// Cuánto esperar desde el último mensaje del cliente antes de generar la
+// respuesta — si escribe varios mensajes seguidos (típico de WhatsApp: manda
+// "buenas noches", "quiero una promo especial", "con envío a tal dirección",
+// su nombre, cómo paga... todo en mensajes separados en vez de uno solo), sin
+// esto la IA contestaba cada uno por separado (7 respuestas sueltas y
+// apuradas en vez de una sola bien armada). 8s es un margen razonable para
+// que termine de escribir sin sentirse demorado.
+const DEBOUNCE_MS = 8000;
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function respondWithAi(
   conversationId: string,
   customerId: string,
   customerWhatsapp: string,
   sucursalId: string,
+  triggerMessageId: string,
 ) {
+  // Espera el margen de debounce y recién ahí chequea si el mensaje que
+  // disparó esta invocación sigue siendo el último del cliente en la
+  // conversación — si mientras tanto llegó uno más nuevo (otro mensaje del
+  // mismo cliente, procesado por otra invocación de este mismo webhook), esa
+  // invocación más nueva es la que va a terminar respondiendo por todos, así
+  // que esta se retira sin mandar nada. El resultado: un solo mensaje de
+  // respuesta que ya tiene en su historial TODOS los mensajes de la tanda,
+  // no uno por cada mensaje suelto.
+  await sleep(DEBOUNCE_MS);
+  const latestFromCustomer = await prisma.message.findFirst({
+    where: { conversationId, sender: "CLIENTE" },
+    orderBy: { createdAt: "desc" },
+  });
+  if (latestFromCustomer?.id !== triggerMessageId) return;
+
   const recentMessages = await prisma.message.findMany({
     // Solo cliente/IA: si un empleado tomó la conversación manualmente, esas
     // respuestas no deben aparecer como si la IA misma las hubiera dicho —
@@ -104,7 +133,7 @@ export async function POST(request: Request) {
         });
       }
 
-      await prisma.message.create({
+      const inboundMessage = await prisma.message.create({
         data: {
           conversationId: conversation.id,
           sender: "CLIENTE",
@@ -127,10 +156,14 @@ export async function POST(request: Request) {
       });
 
       // Generar y mandar la respuesta después de contestarle a YCloud, para
-      // no arriesgar un timeout del webhook mientras OpenAI/WhatsApp responden.
+      // no arriesgar un timeout del webhook mientras OpenAI/WhatsApp
+      // responden — y con el debounce de más arriba, para no contestar cada
+      // mensaje de una tanda por separado.
       if (conversation.aiActive) {
         const conversationId = conversation.id;
-        after(() => respondWithAi(conversationId, customer.id, inbound.from, sucursal.id));
+        after(() =>
+          respondWithAi(conversationId, customer.id, inbound.from, sucursal.id, inboundMessage.id),
+        );
       }
     }
   }
