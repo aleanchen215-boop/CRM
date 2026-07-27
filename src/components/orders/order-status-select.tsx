@@ -52,11 +52,17 @@ export function OrderStatusSelect({
         </SelectValue>
       </SelectTrigger>
       <SelectContent>
-        {orderStatusValues.map((value) => (
-          <SelectItem key={value} value={value}>
-            {STATUS_LABELS[value]}
-          </SelectItem>
-        ))}
+        {orderStatusValues
+          // CANCELADO no se elige acá — solo a través del botón dedicado
+          // Cancelar venta (permiso más estricto, no cualquiera con
+          // orders:write). Si el pedido ya está cancelado, igual se puede
+          // mostrar como valor actual sin ofrecerlo para elegir de nuevo.
+          .filter((value) => value !== "CANCELADO")
+          .map((value) => (
+            <SelectItem key={value} value={value}>
+              {STATUS_LABELS[value]}
+            </SelectItem>
+          ))}
       </SelectContent>
     </Select>
   );

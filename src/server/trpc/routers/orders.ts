@@ -157,9 +157,20 @@ export const ordersRouter = router({
       return toNumber(updated);
     }),
 
+  // CANCELADO queda afuera a propósito: pasar por acá dejaría cancelar una
+  // venta a cualquiera con orders:write (ej. Cajero), esquivando el
+  // permiso más estricto de orders:cancel — para eso está la mutation
+  // `cancel` dedicada, más abajo.
   updateStatus: requirePermission("orders:write")
     .input(orderStatusUpdateSchema)
     .mutation(async ({ ctx, input }) => {
+      if (input.status === "CANCELADO") {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Para cancelar una venta usá el botón Cancelar venta, no este selector.",
+        });
+      }
+
       const current = await ctx.prisma.order.findUnique({ where: { id: input.id } });
       if (!current) throw new TRPCError({ code: "NOT_FOUND" });
 
