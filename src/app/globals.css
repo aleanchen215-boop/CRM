@@ -137,6 +137,19 @@
   [data-slot="sidebar-gap"] {
     display: none !important;
   }
+  /* html/body y el wrapper del sidebar usan h-full/min-h-full/min-h-svh
+     para que la app en pantalla ocupe toda la ventana — al imprimir eso
+     fuerza el alto de la página al alto de la ventana en vez de al del
+     contenido real, dejando papel en blanco de más después del comprobante
+     antes del corte. Se anula todo esto para que el alto impreso sea el
+     del contenido nomás. */
+  html,
+  body,
+  [data-slot="sidebar-wrapper"] {
+    height: auto !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+  }
 }
 
 /* Comanda para impresora térmica de 80mm (ticket de cocina/reparto, sin
@@ -157,16 +170,26 @@
     display: block;
     width: 76mm;
     font-family: "Courier New", monospace;
-    font-size: 11px;
-    line-height: 1.4;
+    font-size: 15px;
+    line-height: 1.45;
     color: #000;
     background: #fff;
   }
   /* Fuerza negro puro en todo lo de adentro — el tema oscuro de la app usa
      grises claros (ej. text-muted-foreground) que en la térmica salen
-     borrosos o directamente no se ven. */
+     borrosos o directamente no se ven. También anula los tamaños fijos de
+     Tailwind (text-xs, text-sm) que dejaban partes del ticket chiquitas e
+     ilegibles — todo hereda el tamaño base salvo lo marcado como .receipt-title
+     o .receipt-total, que va más grande a propósito. */
   .receipt-print * {
     color: #000 !important;
     background: transparent !important;
+    font-size: inherit !important;
+  }
+  .receipt-print .receipt-title {
+    font-size: 20px !important;
+  }
+  .receipt-print .receipt-total {
+    font-size: 18px !important;
   }
 }

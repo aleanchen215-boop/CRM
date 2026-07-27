@@ -1,7 +1,8 @@
 "use client";
 
-import { use, useEffect } from "react";
+import { use, useEffect, useRef } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, Printer, TriangleAlert } from "lucide-react";
 import { trpc } from "@/lib/trpc/client";
 import { formatCurrency, formatScheduledLabel } from "@/lib/format";
@@ -15,7 +16,9 @@ import { OrderStatusSelect } from "@/components/orders/order-status-select";
 import { OrderNotifyButton } from "@/components/orders/order-notify-button";
 import { OrderCancelButton } from "@/components/orders/order-cancel-button";
 import { EditOrderDialog } from "@/components/orders/edit-order-dialog";
+import { StaffNotesCard } from "@/components/orders/staff-notes-card";
 import { useCanPerform } from "@/lib/use-can-perform";
+import { markAsHandled } from "@/lib/printed-orders";
 
 const MODIFIABLE_STATUSES = new Set(["PENDIENTE", "CONFIRMADO"]);
 
@@ -27,6 +30,7 @@ const METHOD_LABELS: Record<string, string> = {
   PREPAGO: "Prepago",
   VISA: "Visa",
   PAYWAY: "Payway",
+  CUENTA_CORRIENTE: "Cuenta corriente",
 };
 
 const CHANNEL_LABELS: Record<string, string> = {
@@ -56,6 +60,17 @@ function itemLabel(item: {
   return item.product?.name ?? item.promotion?.name ?? "—";
 }
 
+// "12x Jamón y Queso" en vez de repetir "Jamón y Queso" doce veces seguidas
+// — cuenta cuántas unidades de cada sabor distinto hay en la parte a
+// elección de la promo (ej. 6 de un sabor + 6 de otro → "6x A, 6x B").
+function groupBySabor(productos: { nombre: string }[]): string {
+  const counts = new Map<string, number>();
+  for (const producto of productos) {
+    counts.set(producto.nombre, (counts.get(producto.nombre) ?? 0) + 1);
+  }
+  return [...counts.entries()].map(([nombre, cantidad]) => `${cantidad}x ${nombre}`).join(", ");
+}
+
 function ItemDetail({ selections }: { selections: unknown }) {
   if (!Array.isArray(selections) || selections.length === 0 || isHalfAndHalf(selections)) return null;
   return (
@@ -67,7 +82,7 @@ function ItemDetail({ selections }: { selections: unknown }) {
           </li>
         ) : selection.type === "VARIABLE" ? (
           <li key={index}>
-            {selection.categoria} a elección: {selection.productos.map((p) => p.nombre).join(", ")}
+            {selection.categoria} a elección: {groupBySabor(selection.productos)}
           </li>
         ) : null,
       )}
@@ -84,6 +99,22 @@ export default function OrderDetailPage({
   const { data: order, isLoading } = trpc.orders.getById.useQuery({ id }, { refetchInterval: 5000 });
   const utils = trpc.useUtils();
   const canEdit = useCanPerform("orders:write");
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const didAutoPrint = useRef(false);
+
+  // ?autoprint=1 dispara la impresión sola apenas carga el pedido — lo usa
+  // el flujo de "Nuevo pedido" (redirige acá con este query param) y el
+  // aviso de pedido nuevo por WhatsApp en la lista de Ventas. Se saca el
+  // parámetro de la URL después para que un refresh no vuelva a imprimir.
+  useEffect(() => {
+    if (order && searchParams.get("autoprint") === "1" && !didAutoPrint.current) {
+      didAutoPrint.current = true;
+      markAsHandled(id);
+      window.print();
+      router.replace(`/ventas/${id}`);
+    }
+  }, [order, searchParams, id, router]);
 
   const acknowledge = trpc.orders.acknowledgeChanges.useMutation({
     onSuccess: async () => {
@@ -257,12 +288,14 @@ export default function OrderDetailPage({
         </CardContent>
       </Card>
 
+      <StaffNotesCard orderId={order.id} staffNotes={order.staffNotes} />
+
       {/* Vista de solo impresión para la térmica de 80mm — .receipt-print
           queda display:none salvo en @media print (ver globals.css).
           Angosta, monoespaciada, sin tabla de columnas: cada renglón apila
           cantidad/nombre arriba y precio abajo para que entre en el papel. */}
       <div className="receipt-print">
-        <p className="text-center font-bold uppercase">Empapizza</p>
+        <p className="receipt-title text-center font-bold uppercase">Empapizza</p>
         <p className="text-center">{order.sucursal.name}</p>
         <hr className="my-1 border-dashed border-black" />
         <p>{new Date(order.createdAt).toLocaleString("es-AR")}</p>
@@ -296,7 +329,7 @@ export default function OrderDetailPage({
             <span>{formatCurrency(Number(order.deliveryFee))}</span>
           </p>
         )}
-        <p className="flex justify-between text-sm font-bold">
+        <p className="receipt-total flex justify-between font-bold">
           <span>TOTAL</span>
           <span>{formatCurrency(order.total)}</span>
         </p>

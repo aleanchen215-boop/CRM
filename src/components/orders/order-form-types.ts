@@ -1,7 +1,7 @@
 import type { paymentMethodValues } from "@/lib/validation/order";
 
 export type OrderRowValue = {
-  rowType: "PIZZA" | "EMPANADA" | "PROMOCION";
+  rowType: "PIZZA" | "EMPANADA" | "BEBIDA" | "PROMOCION";
   productId: string;
   quantity: number;
   promotionId: string;

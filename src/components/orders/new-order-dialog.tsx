@@ -96,7 +96,7 @@ export function NewOrderDialog() {
             channelSource={channelSource}
             onBack={reset}
             onSuccess={(orderId) => {
-              router.push(`/ventas/${orderId}`);
+              router.push(`/ventas/${orderId}?autoprint=1`);
             }}
           />
         )}

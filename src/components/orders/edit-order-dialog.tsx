@@ -1,10 +1,10 @@
 "use client";
 
 import { useState } from "react";
+import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { Pencil, Plus, Trash2 } from "lucide-react";
 import { trpc } from "@/lib/trpc/client";
-import { formatCurrency } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -12,14 +12,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Input } from "@/components/ui/input";
+import type { OrderFormValues } from "@/components/orders/order-form-types";
+import { emptyRow, validateRows, toApiItems } from "@/components/orders/order-row-utils";
+import { OrderItemRow } from "@/components/orders/order-item-row";
 
 type Item = {
   id: string;
@@ -31,24 +26,24 @@ type Item = {
   selections: unknown;
 };
 
-function isHalfAndHalf(selections: unknown): boolean {
-  return Array.isArray(selections) && (selections as Array<{ type?: string }>)[0]?.type === "MEDIA_MEDIA";
-}
-
-// Solo se pueden agregar/sacar productos sueltos desde acá — los renglones
-// de promo o mitad y mitad hay que tocarlos de nuevo desde WhatsApp/la IA,
-// editarlos a mano abriría la puerta a inconsistencias con las reglas de
-// armado de promos.
-function isEditableLooseItem(item: Item): item is Item & { productId: string } {
-  return Boolean(item.productId) && !isHalfAndHalf(item.selections);
+function itemLabel(item: Item): string {
+  return item.product?.name ?? item.promotion?.name ?? "—";
 }
 
 export function EditOrderDialog({ orderId, items }: { orderId: string; items: Item[] }) {
   const [open, setOpen] = useState(false);
-  const [newProductId, setNewProductId] = useState("");
-  const [newQuantity, setNewQuantity] = useState("1");
   const utils = trpc.useUtils();
-  const { data: products } = trpc.products.list.useQuery({});
+
+  const form = useForm<OrderFormValues>({
+    defaultValues: {
+      customerId: "",
+      method: "EFECTIVO",
+      items: [emptyRow()],
+      notes: "",
+      shippingAddress: "",
+      sucursalId: "",
+    },
+  });
 
   const invalidate = () =>
     Promise.all([
@@ -58,66 +53,67 @@ export function EditOrderDialog({ orderId, items }: { orderId: string; items: It
 
   const addItems = trpc.orders.addItems.useMutation({
     onSuccess: async () => {
-      setNewProductId("");
-      setNewQuantity("1");
+      form.reset({ ...form.getValues(), items: [emptyRow()] });
+      toast.success("Producto agregado");
       await invalidate();
     },
     onError: (error) => toast.error(error.message),
   });
 
-  const removeItems = trpc.orders.removeItems.useMutation({
+  const removeItemRow = trpc.orders.removeItemRow.useMutation({
     onSuccess: invalidate,
     onError: (error) => toast.error(error.message),
   });
 
-  const looseItems = items.filter(isEditableLooseItem);
-  const otherItems = items.filter((item) => !isEditableLooseItem(item));
+  function handleAdd() {
+    const row = form.getValues("items.0");
+    const error = validateRows([row]);
+    if (error) {
+      toast.error(error);
+      return;
+    }
+    const [apiItem] = toApiItems([row]);
+    if (!apiItem) return;
+    addItems.mutate({ orderId, items: [apiItem] });
+  }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) form.reset({ ...form.getValues(), items: [emptyRow()] });
+      }}
+    >
       <Button type="button" variant="outline" size="sm" onClick={() => setOpen(true)}>
         <Pencil />
         Editar pedido
       </Button>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>Editar pedido</DialogTitle>
         </DialogHeader>
 
-        <div className="flex flex-col gap-3">
-          {otherItems.length > 0 && (
-            <div className="flex flex-col gap-1 rounded-lg border bg-muted/30 p-3 text-sm text-muted-foreground">
-              <p className="text-xs font-medium uppercase tracking-wide">
-                Promos / mitad y mitad (no editable acá)
-              </p>
-              {otherItems.map((item) => (
-                <p key={item.id}>
-                  {item.quantity}x {item.product?.name ?? item.promotion?.name ?? "—"}
-                </p>
-              ))}
-            </div>
-          )}
-
+        <div className="flex flex-col gap-4">
           <div className="flex flex-col gap-2">
-            {looseItems.length === 0 && (
-              <p className="text-sm text-muted-foreground">Sin productos sueltos en este pedido.</p>
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Productos en el pedido
+            </p>
+            {items.length === 0 && (
+              <p className="text-sm text-muted-foreground">Sin productos.</p>
             )}
-            {looseItems.map((item) => (
+            {items.map((item) => (
               <div key={item.id} className="flex items-center justify-between gap-2 rounded-lg border p-2 text-sm">
                 <span>
-                  {item.quantity}x {item.product?.name}
+                  {item.quantity}x {itemLabel(item)}
                 </span>
                 <Button
                   type="button"
                   variant="ghost"
                   size="icon-sm"
-                  disabled={removeItems.isPending}
-                  onClick={() => {
-                    removeItems.mutate({
-                      orderId,
-                      removals: [{ productId: item.productId, quantity: item.quantity }],
-                    });
-                  }}
+                  disabled={removeItemRow.isPending || items.length <= 1}
+                  title={items.length <= 1 ? "No se puede sacar el único producto del pedido" : undefined}
+                  onClick={() => removeItemRow.mutate({ orderId, orderItemId: item.id })}
                 >
                   <Trash2 className="size-4" />
                 </Button>
@@ -125,43 +121,14 @@ export function EditOrderDialog({ orderId, items }: { orderId: string; items: It
             ))}
           </div>
 
-          <div className="flex items-center gap-2 border-t pt-3">
-            <Select value={newProductId} onValueChange={(value) => setNewProductId(value ?? "")}>
-              <SelectTrigger className="flex-1">
-                <SelectValue placeholder="Agregar producto…">
-                  {(id: string) => {
-                    const product = products?.find((p) => p.id === id);
-                    return product ? `${product.name} (${formatCurrency(product.price)})` : id;
-                  }}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {products?.map((product) => (
-                  <SelectItem key={product.id} value={product.id}>
-                    {product.name} ({formatCurrency(product.price)})
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Input
-              type="number"
-              min={1}
-              step={1}
-              className="w-20"
-              value={newQuantity}
-              onChange={(event) => setNewQuantity(event.target.value)}
-            />
-            <Button
-              type="button"
-              size="icon"
-              disabled={!newProductId || addItems.isPending}
-              onClick={() => {
-                const quantity = Number(newQuantity);
-                if (!newProductId || !(quantity > 0)) return;
-                addItems.mutate({ orderId, items: [{ productId: newProductId, quantity }] });
-              }}
-            >
+          <div className="flex flex-col gap-2 border-t pt-3">
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Agregar producto
+            </p>
+            <OrderItemRow index={0} control={form.control} onRemove={() => {}} canRemove={false} />
+            <Button type="button" onClick={handleAdd} disabled={addItems.isPending} className="self-end">
               <Plus />
+              Agregar al pedido
             </Button>
           </div>
         </div>

@@ -20,12 +20,14 @@ import { VariableSlotPicker } from "@/components/orders/variable-slot-picker";
 const ROW_TYPE_LABELS: Record<OrderRowValue["rowType"], string> = {
   PIZZA: "Pizza",
   EMPANADA: "Empanada",
+  BEBIDA: "Bebida",
   PROMOCION: "Promoción",
 };
 
-const CATEGORY_BY_ROW_TYPE: Record<"PIZZA" | "EMPANADA", string> = {
+const CATEGORY_BY_ROW_TYPE: Record<"PIZZA" | "EMPANADA" | "BEBIDA", string> = {
   PIZZA: "Pizzas",
   EMPANADA: "Empanadas",
+  BEBIDA: "Bebidas",
 };
 
 // Input de cantidad como texto libre en vez de atado directo al número: si
@@ -127,7 +129,7 @@ export function OrderItemRow({
 
         const selectedPromotion = promotions?.find((p) => p.id === row.promotionId);
         const categoryName =
-          row.rowType === "PIZZA" || row.rowType === "EMPANADA"
+          row.rowType === "PIZZA" || row.rowType === "EMPANADA" || row.rowType === "BEBIDA"
             ? CATEGORY_BY_ROW_TYPE[row.rowType]
             : null;
         const filteredProducts = categoryName

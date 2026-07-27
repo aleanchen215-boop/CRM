@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc/client";
-import { formatCurrency } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -16,15 +15,28 @@ import {
 
 const TIPO_LABELS = { MANANA: "Mañana", NOCHE: "Noche" } as const;
 
+const todayFormatter = new Intl.DateTimeFormat("es-AR", {
+  timeZone: "America/Argentina/Buenos_Aires",
+  weekday: "long",
+  day: "numeric",
+  month: "long",
+  year: "numeric",
+});
+
+function capitalize(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
 // Paracao solo tiene turno noche (sin selector); el resto (Almafuerte)
-// elige mañana o noche. El monto de apertura no se tipea — sale siempre
-// del efectivo contado al cerrar el turno anterior de esa sucursal.
+// elige mañana o noche. No se muestra el efectivo contado al cerrar el
+// turno anterior (pedido explícito del dueño, para no condicionar al que
+// abre) — el monto de apertura lo sigue calculando el server a partir de
+// ese cierre, solo que ya no se le informa acá.
 export function AbrirTurnoCard() {
   const [tipo, setTipo] = useState<"MANANA" | "NOCHE">("NOCHE");
   const utils = trpc.useUtils();
   const { data: me } = trpc.system.me.useQuery();
   const { data: sucursales } = trpc.sucursales.list.useQuery();
-  const { data: nextAmount, isLoading: loadingAmount } = trpc.turnos.getNextOpeningAmount.useQuery();
 
   const misucursal = sucursales?.find((s) => s.id === me?.sucursalId);
   const needsPicker = misucursal ? misucursal.slug !== "paracao" : false;
@@ -55,13 +67,8 @@ export function AbrirTurnoCard() {
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         <div>
-          <p className="text-sm text-muted-foreground">Apertura de caja</p>
-          <p className="text-2xl font-semibold">
-            {loadingAmount ? "…" : formatCurrency(nextAmount ?? 0)}
-          </p>
-          <p className="text-xs text-muted-foreground">
-            Efectivo contado al cerrar el turno anterior de esta sucursal.
-          </p>
+          <p className="text-sm text-muted-foreground">Hoy es</p>
+          <p className="text-2xl font-semibold">{capitalize(todayFormatter.format(new Date()))}</p>
         </div>
 
         {needsPicker && (

@@ -1,6 +1,9 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import { trpc } from "@/lib/trpc/client";
 import { formatCurrency, formatScheduledLabel } from "@/lib/format";
 import { salesChannelValues } from "@/lib/validation/order";
@@ -11,6 +14,7 @@ import { OrderStatusBadge } from "@/components/orders/order-status-badge";
 import { PaymentStatusBadge } from "@/components/orders/payment-status-badge";
 import { NewOrderDialog } from "@/components/orders/new-order-dialog";
 import { useSucursalSelection } from "@/components/layout/sucursal-context";
+import { hasBeenHandled, markAsHandled } from "@/lib/printed-orders";
 
 const CHANNEL_LABELS: Record<(typeof salesChannelValues)[number], string> = {
   MOSTRADOR: "Mostrador",
@@ -20,10 +24,40 @@ const CHANNEL_LABELS: Record<(typeof salesChannelValues)[number], string> = {
 
 export default function VentasPage() {
   const { selectedSucursalId } = useSucursalSelection();
+  const router = useRouter();
   const { data: orders, isLoading } = trpc.orders.list.useQuery(
     { sucursalId: selectedSucursalId },
     { refetchInterval: 5000 },
   );
+
+  // Avisa de pedidos nuevos que aparecieron entre un sondeo y otro (típico
+  // de un pedido armado solo por WhatsApp) con un botón para imprimir la
+  // comanda en el momento — no avisa de todo lo que ya había al entrar a
+  // la página (esa carga inicial solo arma la base de comparación), ni de
+  // uno que ya se imprimió (creado manualmente acá mismo, o desde otra
+  // pestaña) gracias al registro compartido en localStorage.
+  const seenIds = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    if (!orders) return;
+    const currentIds = new Set(orders.map((order) => order.id));
+    if (seenIds.current) {
+      for (const order of orders) {
+        if (seenIds.current.has(order.id) || hasBeenHandled(order.id)) continue;
+        toast(`Pedido nuevo de ${order.customer.firstName} ${order.customer.lastName}`, {
+          description: `${order._count.items} producto${order._count.items === 1 ? "" : "s"} · ${formatCurrency(order.total)}`,
+          duration: 20000,
+          action: {
+            label: "Imprimir comanda",
+            onClick: () => {
+              markAsHandled(order.id);
+              router.push(`/ventas/${order.id}?autoprint=1`);
+            },
+          },
+        });
+      }
+    }
+    seenIds.current = currentIds;
+  }, [orders, router]);
 
   return (
     <div className="flex flex-col gap-6">

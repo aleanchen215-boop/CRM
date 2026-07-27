@@ -453,6 +453,9 @@ enum PaymentMethod {
   VISA
   // Mostrador: terminal de pago con tarjeta que usa el local.
   PAYWAY
+  // Mostrador únicamente — consumos internos que se anotan para cobrar/
+  // descontar después, no un pago real en el momento.
+  CUENTA_CORRIENTE
 }
 
 enum SalesChannel {
@@ -501,6 +504,11 @@ model Order {
   // "para las 21:30") — se muestra como cuadro aparte en Ventas ("Retira
   // 21:30" / "Envía 21:30"), no se mezcla con notes.
   scheduledFor    DateTime?
+  // Observaciones INTERNAS del local (ej. "cliente canceló por demora"),
+  // sin relación con la preparación — a diferencia de `notes`, esto NUNCA
+  // se imprime en la comanda, es solo para quien vende (útil porque Cajero
+  // no puede cancelar ventas: acá deja constancia de qué pasó).
+  staffNotes      String?
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 

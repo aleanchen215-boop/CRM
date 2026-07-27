@@ -1,10 +1,10 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { orderInputSchema, orderStatusUpdateSchema, getAllowedPaymentMethods } from "@/lib/validation/order";
+import { orderInputSchema, orderItemInputSchema, orderStatusUpdateSchema, getAllowedPaymentMethods } from "@/lib/validation/order";
 import { requirePermission, router } from "@/server/trpc/trpc";
 import { resolveSucursalFilter, resolveSucursalForWrite } from "@/server/trpc/sucursal";
 import { sendWhatsappTextMessage } from "@/server/integrations/whatsapp/client";
-import { createOrder, addItemsToOrder, removeItemsFromOrder, reconcilePromotions } from "@/server/orders/create-order";
+import { createOrder, addItemsToOrder, removeOrderItemRow, reconcilePromotions } from "@/server/orders/create-order";
 
 function toNumber<T extends { total: unknown }>(order: T) {
   return { ...order, total: Number(order.total) };
@@ -81,6 +81,21 @@ export const ordersRouter = router({
       return toNumber(order);
     }),
 
+  // Observación interna (no se imprime, no tiene que ver con los
+  // productos) — pensada para dejar constancia de cosas como "cliente
+  // canceló por demora" cuando Cajero no puede cancelar la venta él mismo,
+  // o anotar a mano una hora de retiro. Reemplaza el texto entero cada vez
+  // (se confirma con el tilde en la UI, no se va acumulando como `notes`).
+  updateStaffNotes: requirePermission("orders:write")
+    .input(z.object({ id: z.string(), staffNotes: z.string().trim().max(1000) }))
+    .mutation(async ({ ctx, input }) => {
+      const order = await ctx.prisma.order.update({
+        where: { id: input.id },
+        data: { staffNotes: input.staffNotes || null },
+      });
+      return toNumber(order);
+    }),
+
   create: requirePermission("orders:write")
     .input(orderInputSchema)
     .mutation(async ({ ctx, input }) => {
@@ -98,22 +113,15 @@ export const ordersRouter = router({
     }),
 
   // Edición manual desde el CRM (botón "Editar pedido" en el detalle) —
-  // agrega productos sueltos a un pedido ya creado, mientras siga en un
-  // estado modificable (ver isModifiable en create-order.ts). Reconcilia
-  // promos después por si la combinación resultante arma una, igual que
-  // hace el asistente de WhatsApp.
+  // agrega un renglón a un pedido ya creado (producto suelto, promo, o
+  // mitad y mitad — misma forma que crear un pedido nuevo), mientras siga
+  // en un estado modificable (ver isModifiable en create-order.ts).
+  // Reconcilia promos después por si la combinación resultante arma una,
+  // igual que hace el asistente de WhatsApp.
   addItems: requirePermission("orders:write")
-    .input(
-      z.object({
-        orderId: z.string(),
-        items: z.array(z.object({ productId: z.string(), quantity: z.number().positive() })).min(1),
-      }),
-    )
+    .input(z.object({ orderId: z.string(), items: z.array(orderItemInputSchema).min(1) }))
     .mutation(async ({ input }) => {
-      const updated = await addItemsToOrder(
-        input.orderId,
-        input.items.map((item) => ({ kind: "PRODUCTO" as const, ...item })),
-      );
+      const updated = await addItemsToOrder(input.orderId, input.items);
       if (!updated) {
         throw new TRPCError({
           code: "BAD_REQUEST",
@@ -124,38 +132,29 @@ export const ordersRouter = router({
       return toNumber(reconciled);
     }),
 
-  // Saca productos sueltos de un pedido ya creado — nunca puede dejarlo sin
-  // ningún renglón (eso equivale a cancelarlo, y para eso está el botón
-  // Cancelar venta): se valida ANTES de tocar nada, contando lo que
-  // realmente queda considerando renglones sueltos, de promo, y mitad y
-  // mitad, no solo lo que se pide sacar.
-  removeItems: requirePermission("orders:write")
-    .input(
-      z.object({
-        orderId: z.string(),
-        removals: z.array(z.object({ productId: z.string(), quantity: z.number().positive() })).min(1),
-      }),
-    )
+  // Saca un renglón ENTERO de un pedido ya creado (producto suelto, promo,
+  // o mitad y mitad) — nunca puede dejarlo sin ningún renglón (eso
+  // equivale a cancelarlo, y para eso está el botón Cancelar venta): se
+  // valida ANTES de tocar nada, contando cuántos renglones quedarían.
+  removeItemRow: requirePermission("orders:write")
+    .input(z.object({ orderId: z.string(), orderItemId: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      const currentItems = await ctx.prisma.orderItem.findMany({ where: { orderId: input.orderId } });
-      const totalCurrentQty = currentItems.reduce((sum, item) => sum + item.quantity, 0);
-      const requestedRemovalQty = input.removals.reduce((sum, r) => sum + r.quantity, 0);
-      if (requestedRemovalQty >= totalCurrentQty) {
+      const currentCount = await ctx.prisma.orderItem.count({ where: { orderId: input.orderId } });
+      if (currentCount <= 1) {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: "No podés sacar todos los productos del pedido — eso lo dejaría vacío. Para cancelarlo, usá el botón Cancelar venta.",
+          message: "No podés sacar el único producto del pedido — eso lo dejaría vacío. Para cancelarlo, usá el botón Cancelar venta.",
         });
       }
 
-      const updated = await removeItemsFromOrder(input.orderId, input.removals);
+      const updated = await removeOrderItemRow(input.orderId, input.orderItemId);
       if (!updated) {
         throw new TRPCError({
           code: "BAD_REQUEST",
           message: "Este pedido ya no se puede modificar (ya está en preparación o ya salió).",
         });
       }
-      const reconciled = (await reconcilePromotions(updated.id)) ?? updated;
-      return toNumber(reconciled);
+      return toNumber(updated);
     }),
 
   updateStatus: requirePermission("orders:write")

@@ -34,6 +34,7 @@ const PAYMENT_METHOD_LABELS: Record<string, string> = {
   PREPAGO: "Prepago",
   VISA: "Visa",
   PAYWAY: "Payway",
+  CUENTA_CORRIENTE: "Cuenta corriente",
 };
 
 export const dashboardRouter = router({

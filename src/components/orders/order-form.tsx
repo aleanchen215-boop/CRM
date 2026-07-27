@@ -8,9 +8,9 @@ import {
   paymentMethodValues,
   salesChannelValues,
   getAllowedPaymentMethods,
-  type OrderInput,
 } from "@/lib/validation/order";
 import type { OrderFormValues } from "@/components/orders/order-form-types";
+import { emptyRow, isHalfPizzaRow, validateRows, toApiItems } from "@/components/orders/order-row-utils";
 import { trpc } from "@/lib/trpc/client";
 import { formatCurrency } from "@/lib/format";
 import { Button } from "@/components/ui/button";
@@ -43,6 +43,7 @@ const METHOD_LABELS: Record<(typeof paymentMethodValues)[number], string> = {
   PREPAGO: "Prepago",
   VISA: "Visa",
   PAYWAY: "Payway",
+  CUENTA_CORRIENTE: "Cuenta corriente",
 };
 
 const CHANNEL_LABELS: Record<(typeof salesChannelValues)[number], string> = {
@@ -52,70 +53,6 @@ const CHANNEL_LABELS: Record<(typeof salesChannelValues)[number], string> = {
 };
 
 const NEW_CUSTOMER_VALUE = "__new__";
-
-function emptyRow(): OrderFormValues["items"][number] {
-  return { rowType: "PIZZA", productId: "", quantity: 1, promotionId: "", variableSelections: [] };
-}
-
-// 0.5 = media pizza. Dos renglones de 0.5 se combinan en una mitad y mitad
-// (dos sabores); si queda uno solo sin pareja, es media pizza de ese sabor
-// sola. Solo tiene sentido para pizzas, no empanadas.
-function isHalfPizzaRow(row: OrderFormValues["items"][number]): boolean {
-  return row.rowType === "PIZZA" && row.quantity === 0.5;
-}
-
-// Valida a mano (no con zodResolver): la forma de cada renglón en el form
-// es más simple que la unión discriminada que espera la API, así que acá
-// se chequea lo mínimo y se transforma recién al enviar.
-function validateRows(rows: OrderFormValues["items"]): string | null {
-  for (const row of rows) {
-    if (row.rowType === "PROMOCION") {
-      if (!row.promotionId) return "Elegí una promoción en todos los renglones.";
-      for (const selection of row.variableSelections) {
-        if (selection.productIds.some((id) => !id)) {
-          return "Completá todos los sabores a elección antes de crear el pedido.";
-        }
-      }
-      continue;
-    }
-    if (!row.productId) return "Elegí un producto en todos los renglones.";
-    if (row.rowType === "EMPANADA" && row.quantity === 0.5) {
-      return "0.5 (media unidad) solo se puede usar en pizzas, no en empanadas.";
-    }
-    if (!Number.isInteger(row.quantity) && row.quantity !== 0.5) {
-      return "La cantidad tiene que ser un número entero (o 0.5 para media pizza).";
-    }
-  }
-  return null;
-}
-
-function toApiItems(rows: OrderFormValues["items"]): OrderInput["items"] {
-  const items: OrderInput["items"] = [];
-  const halfPizzas = rows.filter(isHalfPizzaRow);
-  const normalRows = rows.filter((row) => !isHalfPizzaRow(row));
-
-  for (const row of normalRows) {
-    items.push(
-      row.rowType === "PROMOCION"
-        ? { kind: "PROMOCION" as const, promotionId: row.promotionId, variableSelections: row.variableSelections }
-        : { kind: "PRODUCTO" as const, productId: row.productId, quantity: row.quantity },
-    );
-  }
-
-  // De a dos: mitad y mitad (dos sabores). Si sobra uno solo, media pizza
-  // de ese sabor sola (mismo precio: entero/2 + $1.000, sin productId2).
-  for (let i = 0; i < halfPizzas.length; i += 2) {
-    const [first, second] = [halfPizzas[i], halfPizzas[i + 1]];
-    items.push({
-      kind: "MEDIA_MEDIA" as const,
-      productId1: first.productId,
-      productId2: second?.productId,
-      quantity: 1,
-    });
-  }
-
-  return items;
-}
 
 export function OrderForm({
   channel,

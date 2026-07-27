@@ -8,6 +8,7 @@ export const paymentMethodValues = [
   "PREPAGO",
   "VISA",
   "PAYWAY",
+  "CUENTA_CORRIENTE",
 ] as const;
 
 export const salesChannelValues = ["MOSTRADOR", "DELIVERY", "APPS"] as const;
@@ -22,7 +23,9 @@ export const appsSourceSuggestions = appsSourceValues;
 
 // Qué métodos de pago tienen sentido según el canal (y, para Apps, la
 // plataforma puntual) — cada uno cobra distinto en la práctica:
-// - Mostrador: efectivo en mano, o tarjeta por la terminal Payway del local.
+// - Mostrador: efectivo en mano, tarjeta por la terminal Payway del local, o
+//   cuenta corriente (consumos internos que se anotan para descontar
+//   después, no un cobro real en el momento — solo tiene sentido acá).
 // - Delivery: efectivo al cadete, o link de Mercado Pago (queda como
 //   TRANSFERENCIA por motivos históricos, ver el enum).
 // - Apps/PedidosYa: la plataforma ya le cobró al cliente (prepago) o paga
@@ -32,7 +35,7 @@ export function getAllowedPaymentMethods(
   channel: (typeof salesChannelValues)[number],
   channelSource?: string,
 ): (typeof paymentMethodValues)[number][] {
-  if (channel === "MOSTRADOR") return ["EFECTIVO", "PAYWAY"];
+  if (channel === "MOSTRADOR") return ["EFECTIVO", "PAYWAY", "CUENTA_CORRIENTE"];
   if (channel === "DELIVERY") return ["EFECTIVO", "TRANSFERENCIA"];
 
   // APPS

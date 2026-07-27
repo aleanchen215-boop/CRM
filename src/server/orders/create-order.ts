@@ -360,6 +360,58 @@ export async function removeItemsFromOrder(
   });
 }
 
+// Saca un renglón COMPLETO del pedido (producto suelto, promo, o mitad y
+// mitad) — a diferencia de removeItemsFromOrder (que resta cantidad de
+// productos sueltos puntuales, pensada para el asistente de WhatsApp), esta
+// se usa desde la edición manual en el CRM: el cajero/vendedor quita un
+// renglón entero tal cual aparece en el pedido. El router valida antes de
+// llamarla que no sea el último renglón (dejaría el pedido vacío).
+export async function removeOrderItemRow(orderId: string, orderItemId: string) {
+  return prisma.$transaction(async (tx) => {
+    const order = await tx.order.findUnique({ where: { id: orderId } });
+    if (!order || !isModifiable(order.status)) return null;
+
+    const item = await tx.orderItem.findUnique({ where: { id: orderItemId } });
+    if (!item || item.orderId !== orderId) return null;
+
+    // Reconstruye qué insumos devolver a partir de `selections`/productId
+    // guardados — mismo criterio que resolveOrderItem al descontarlos.
+    const deductions: SupplyDeduction[] = [];
+    if (item.promotionId) {
+      const selections = Array.isArray(item.selections)
+        ? (item.selections as Array<Record<string, unknown>>)
+        : [];
+      for (const selection of selections) {
+        if (selection["type"] === "FIJO" && selection["productId"]) {
+          deductions.push({
+            productId: selection["productId"] as string,
+            quantity: (selection["cantidad"] as number) ?? 1,
+          });
+        } else if (selection["type"] === "VARIABLE" && Array.isArray(selection["productos"])) {
+          for (const producto of selection["productos"] as Array<{ productId?: string }>) {
+            if (producto.productId) deductions.push({ productId: producto.productId, quantity: 1 });
+          }
+        }
+      }
+    } else if (item.productId) {
+      // Producto suelto o mitad y mitad: la receta se descuenta una sola vez
+      // por unidad física (ver resolveOrderItem), da igual si es MEDIA_MEDIA.
+      deductions.push({ productId: item.productId, quantity: item.quantity });
+    }
+
+    await tx.orderItem.delete({ where: { id: item.id } });
+
+    const updated = await tx.order.update({
+      where: { id: orderId },
+      data: { total: Number(order.total) - Number(item.unitPrice) * item.quantity },
+    });
+
+    await applySupplyDeductions(tx, order.sucursalId, deductions, "ENTRADA");
+
+    return updated;
+  });
+}
+
 // Cambia método de pago y/o el dato de vuelto de un pedido PENDIENTE (ej. el
 // cliente decide pagar por transferencia en vez de efectivo). Devuelve null
 // si el pedido ya no está en un estado modificable.
