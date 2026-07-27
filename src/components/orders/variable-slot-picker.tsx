@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
-type ProductOption = { id: string; name: string };
+type ProductOption = { id: string; name: string; outOfStock?: boolean };
 
 export function VariableSlotPicker({
   label,
@@ -98,9 +98,12 @@ export function VariableSlotPicker({
               variant="outline"
               size="sm"
               className="h-7"
+              disabled={product.outOfStock}
+              title={product.outOfStock ? "Sin stock" : undefined}
               onClick={() => addFlavor(product.id)}
             >
               {product.name}
+              {product.outOfStock ? " (sin stock)" : ""}
             </Button>
           ))}
         </div>

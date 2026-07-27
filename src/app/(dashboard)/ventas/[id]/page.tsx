@@ -207,7 +207,7 @@ export default function OrderDetailPage({
         <div className="flex items-center gap-2">
           <OrderNotifyButton orderId={order.id} channel={order.channel} />
           {canEdit && MODIFIABLE_STATUSES.has(order.status) && (
-            <EditOrderDialog orderId={order.id} items={order.items} />
+            <EditOrderDialog orderId={order.id} items={order.items} sucursalId={order.sucursalId} />
           )}
           <OrderStatusSelect orderId={order.id} status={order.status} />
           <OrderCancelButton

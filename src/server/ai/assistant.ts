@@ -10,6 +10,7 @@ import {
   handleModifyOrder,
 } from "@/server/ai/create-order-tool";
 import { aliasDrinkBrands } from "@/server/ai/drink-aliases";
+import { getAvailableStock } from "@/server/stock/availability";
 
 // Vía OpenRouter (openrouter.ai) en vez de OpenAI directo, para poder usar
 // modelos gratuitos. La API es compatible con Chat Completions de OpenAI.
@@ -49,6 +50,7 @@ Qué vendemos (esto es fijo, no lo cuestiones ni inventes variantes):
 - Si el cliente pide un sabor o tamaño de forma ambigua (ej. "empanadas de carne", "de Roquefort", o una bebida sin decir el tamaño) y buscar_productos (o el catálogo completo más abajo en este mensaje) te devuelve MÁS DE UN sabor/tamaño que matchea, NUNCA elijas uno por tu cuenta — listale exactamente las opciones que encontraste en ESE momento (fijate en el catálogo completo, no te bases en sabores que recuerdes de ejemplos) y preguntale cuál quiere.
 - El catálogo completo que aparece más abajo en este mensaje es la única fuente de verdad de qué sabores/productos existen — nunca le digas al cliente que no tenemos un sabor que SÍ está en esa lista, ni inventes que faltan opciones que no verificaste ahí.
 - Si el cliente pregunta qué lleva o qué ingredientes tiene una pizza/empanada, usá buscar_productos y respondé con el campo "ingredientes" tal cual — nunca inventes ingredientes. Si ese producto no tiene ingredientes cargados todavía, decilo con naturalidad ("no tengo esa info cargada, preguntale al local") en vez de inventar una lista.
+- Stock: no todos los sabores tienen stock limitado — si buscar_productos no te devuelve el campo stock_disponible para ese producto, pedí la cantidad que sea sin problema. Si SÍ te lo devuelve y el cliente pide más de lo que hay, NUNCA le digas que no tenemos ese sabor (si stock_disponible es mayor a 0, sí lo tenemos, solo que queda menos de lo que pidió) — decile cuánto queda de verdad y preguntale qué otro sabor quiere para completar el resto. Si crear_pedido o modificar_pedido te devuelven un error porque no alcanza el stock, es la misma situación: avisale al cliente cuánto queda de ese sabor y preguntale cómo quiere completar el pedido (el error suele traer sugerencias de otros sabores con stock, ofreceselas) — no lo intentes de nuevo con la misma cantidad sin resolver eso primero con el cliente.
 
 Cómo manejar el catálogo:
 - Hay tres categorías: Pizzas, Empanadas y Bebidas. Cada producto pertenece a una sola — fijate en el campo "categoria" que te devuelve buscar_productos antes de decir de qué tipo es algo, no lo asumas por el nombre.
@@ -101,7 +103,7 @@ const SEARCH_PRODUCTS_TOOL: ChatCompletionTool = {
   function: {
     name: "buscar_productos",
     description:
-      "Busca productos del catálogo (pizzas o empanadas) por nombre O por código/SKU para conocer su precio, categoría e ingredientes exactos. Funciona igual si el cliente abrevia el sabor con el código (ej. \"EP\", \"JQ\") — pasá el texto tal cual lo escribió el cliente, no hace falta adivinar el nombre completo. Usar siempre antes de mencionar un precio o confirmar disponibilidad, y también cuando el cliente pregunte qué lleva o qué ingredientes tiene un producto. Si el cliente pregunta cuánto sale una CANTIDAD de algo (ej. \"cuánto salen 5 empanadas de carne\"), pasá esa cantidad en el campo cantidad y usá el subtotal_ars que te devuelve — NUNCA multipliques el precio vos de memoria, te podés equivocar en la cuenta.",
+      "Busca productos del catálogo (pizzas o empanadas) por nombre O por código/SKU para conocer su precio, categoría, ingredientes y stock disponible. Funciona igual si el cliente abrevia el sabor con el código (ej. \"EP\", \"JQ\") — pasá el texto tal cual lo escribió el cliente, no hace falta adivinar el nombre completo. Usar siempre antes de mencionar un precio o confirmar disponibilidad, y también cuando el cliente pregunte qué lleva o qué ingredientes tiene un producto. Si el cliente pregunta cuánto sale una CANTIDAD de algo (ej. \"cuánto salen 5 empanadas de carne\"), pasá esa cantidad en el campo cantidad y usá el subtotal_ars que te devuelve — NUNCA multipliques el precio vos de memoria, te podés equivocar en la cuenta. Si el resultado trae stock_disponible, es cuánto queda de ESE sabor puntual — si el cliente pide más de lo que hay, avisale cuánto queda de verdad y preguntale qué otro sabor quiere para completar el resto (no le digas que no hay nada si stock_disponible es mayor a cero). Si el campo no viene, ese producto no tiene stock limitado — pedí la cantidad que sea sin problema.",
     parameters: {
       type: "object",
       properties: {
@@ -193,9 +195,17 @@ function sanitizeForWhatsapp(text: string): string {
 
 async function searchProducts(
   query: string,
+  sucursalId: string,
   cantidad?: number,
 ): Promise<
-  { nombre: string; categoria: string; precio_ars: string; subtotal_ars?: string; ingredientes?: string }[]
+  {
+    nombre: string;
+    categoria: string;
+    precio_ars: string;
+    subtotal_ars?: string;
+    ingredientes?: string;
+    stock_disponible?: number;
+  }[]
 > {
   // Escala chica (decenas de productos): traer todo y filtrar en memoria es
   // más simple y más tolerante que armar el WHERE ideal en SQL.
@@ -216,6 +226,7 @@ async function searchProducts(
   // nombre y el modelo terminaba inventando un sabor que no existe.
   const skuMatch = products.find((product) => product.sku && normalize(product.sku) === normalizedQuery);
   if (skuMatch) {
+    const stock = await getAvailableStock([skuMatch.id], sucursalId);
     return [
       {
         nombre: skuMatch.name,
@@ -223,6 +234,7 @@ async function searchProducts(
         precio_ars: formatArs(Number(skuMatch.price)),
         ...withSubtotal({ precio: Number(skuMatch.price) }),
         ...(skuMatch.ingredients ? { ingredientes: skuMatch.ingredients } : {}),
+        ...(stock.has(skuMatch.id) ? { stock_disponible: stock.get(skuMatch.id) } : {}),
       },
     ];
   }
@@ -234,12 +246,16 @@ async function searchProducts(
     return name.includes(normalizedQuery) || words.some((word) => name.includes(word));
   });
 
-  return matches.slice(0, 10).map((product) => ({
+  const limited = matches.slice(0, 10);
+  const stock = await getAvailableStock(limited.map((p) => p.id), sucursalId);
+
+  return limited.map((product) => ({
     nombre: product.name,
     categoria: product.category?.name ?? "Sin categoría",
     precio_ars: formatArs(Number(product.price)),
     ...withSubtotal({ precio: Number(product.price) }),
     ...(product.ingredients ? { ingredientes: product.ingredients } : {}),
+    ...(stock.has(product.id) ? { stock_disponible: stock.get(product.id) } : {}),
   }));
 }
 
@@ -432,7 +448,7 @@ export async function generateAiReply(
       try {
         if (call.function.name === "buscar_productos") {
           const args = JSON.parse(call.function.arguments) as { query: string; cantidad?: number };
-          output = JSON.stringify(await searchProducts(args.query, args.cantidad));
+          output = JSON.stringify(await searchProducts(args.query, sucursalId, args.cantidad));
         } else if (call.function.name === "buscar_promociones") {
           output = JSON.stringify(await listPromotions());
         } else if (call.function.name === "crear_pedido") {

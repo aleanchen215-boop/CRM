@@ -1,13 +1,39 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { orderInputSchema, orderItemInputSchema, orderStatusUpdateSchema, getAllowedPaymentMethods } from "@/lib/validation/order";
+import type { OrderInput } from "@/lib/validation/order";
 import { requirePermission, router } from "@/server/trpc/trpc";
 import { resolveSucursalFilter, resolveSucursalForWrite } from "@/server/trpc/sucursal";
 import { sendWhatsappTextMessage } from "@/server/integrations/whatsapp/client";
 import { createOrder, addItemsToOrder, removeOrderItemRow, reconcilePromotions } from "@/server/orders/create-order";
+import { getAvailableStock, computeRequestedQuantities } from "@/server/stock/availability";
+import type { PrismaClient } from "@/generated/prisma/client";
 
 function toNumber<T extends { total: unknown }>(order: T) {
   return { ...order, total: Number(order.total) };
+}
+
+// Corta la venta manual (CRM) si algún renglón pide más de lo que queda de
+// stock trackeado (ProductSupplyUsage) — a diferencia del descuento real al
+// vender (que deja el stock ir a negativo a propósito, ver
+// applySupplyDeductions), acá SÍ conviene frenar antes de confirmar: quien
+// carga la venta a mano puede elegir otro sabor en el momento en vez de
+// enterarse después de que se vendió algo que no había.
+async function assertStockAvailable(prisma: PrismaClient, items: OrderInput["items"], sucursalId: string) {
+  const requested = computeRequestedQuantities(items);
+  if (requested.size === 0) return;
+
+  const available = await getAvailableStock([...requested.keys()], sucursalId);
+  for (const [productId, quantity] of requested) {
+    const stock = available.get(productId);
+    if (stock === undefined || quantity <= stock) continue;
+
+    const product = await prisma.product.findUnique({ where: { id: productId } });
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: `No hay stock suficiente de "${product?.name ?? "ese producto"}" — quedan ${stock}, el pedido tiene ${quantity}.`,
+    });
+  }
 }
 
 const NOTIFICATION_MESSAGES = {
@@ -108,6 +134,7 @@ export const ordersRouter = router({
       }
 
       const sucursalId = resolveSucursalForWrite(ctx.user, input.sucursalId);
+      await assertStockAvailable(ctx.prisma, input.items, sucursalId);
       const order = await createOrder({ ...input, sucursalId, employeeId: ctx.user.id });
       return toNumber(order);
     }),
@@ -120,7 +147,11 @@ export const ordersRouter = router({
   // igual que hace el asistente de WhatsApp.
   addItems: requirePermission("orders:write")
     .input(z.object({ orderId: z.string(), items: z.array(orderItemInputSchema).min(1) }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      const order = await ctx.prisma.order.findUnique({ where: { id: input.orderId } });
+      if (!order) throw new TRPCError({ code: "NOT_FOUND" });
+      await assertStockAvailable(ctx.prisma, input.items, order.sucursalId);
+
       const updated = await addItemsToOrder(input.orderId, input.items);
       if (!updated) {
         throw new TRPCError({

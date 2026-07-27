@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { Prisma } from "@/generated/prisma/client";
 import { productInputSchema, productUpdateSchema } from "@/lib/validation/product";
 import { requirePermission, router } from "@/server/trpc/trpc";
+import { getAvailableStock } from "@/server/stock/availability";
 
 function toNumber(product: { cost: unknown; price: unknown }) {
   return { cost: Number(product.cost), price: Number(product.price) };
@@ -52,6 +53,18 @@ export const productsRouter = router({
       });
 
       return products.map((product) => ({ ...product, ...toNumber(product) }));
+    }),
+
+  // Cuánto queda de cada sabor con receta cargada (ProductSupplyUsage) en
+  // esta sucursal — lo usa el formulario de "Nuevo pedido"/"Editar pedido"
+  // para no dejar agregar a la venta un sabor sin stock. Productos sin
+  // receta no aparecen en el resultado (sin tope conocido).
+  availableStock: requirePermission("products:read")
+    .input(z.object({ sucursalId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const products = await ctx.prisma.product.findMany({ select: { id: true } });
+      const stock = await getAvailableStock(products.map((p) => p.id), input.sucursalId);
+      return Object.fromEntries(stock);
     }),
 
   getById: requirePermission("products:read")

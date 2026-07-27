@@ -30,7 +30,15 @@ function itemLabel(item: Item): string {
   return item.product?.name ?? item.promotion?.name ?? "—";
 }
 
-export function EditOrderDialog({ orderId, items }: { orderId: string; items: Item[] }) {
+export function EditOrderDialog({
+  orderId,
+  items,
+  sucursalId,
+}: {
+  orderId: string;
+  items: Item[];
+  sucursalId: string;
+}) {
   const [open, setOpen] = useState(false);
   const utils = trpc.useUtils();
 
@@ -125,7 +133,13 @@ export function EditOrderDialog({ orderId, items }: { orderId: string; items: It
             <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
               Agregar producto
             </p>
-            <OrderItemRow index={0} control={form.control} onRemove={() => {}} canRemove={false} />
+            <OrderItemRow
+              index={0}
+              control={form.control}
+              onRemove={() => {}}
+              canRemove={false}
+              sucursalId={sucursalId}
+            />
             <Button type="button" onClick={handleAdd} disabled={addItems.isPending} className="self-end">
               <Plus />
               Agregar al pedido

@@ -14,6 +14,7 @@ import {
 } from "@/server/orders/create-order";
 import { createMercadoPagoPreference } from "@/server/integrations/mercadopago/client";
 import { aliasDrinkBrands } from "@/server/ai/drink-aliases";
+import { getAvailableStock } from "@/server/stock/availability";
 import type { OrderInput } from "@/lib/validation/order";
 
 export const CREATE_ORDER_TOOL: ChatCompletionTool = {
@@ -211,6 +212,24 @@ function ambiguousFlavorError(query: string, matches: { name: string }[]): strin
   return `"${query}" es ambiguo, puede ser cualquiera de estos sabores: ${options} — preguntale al cliente cuál de esos quiere exactamente (no elijas vos uno) antes de reintentar.`;
 }
 
+// Otros sabores de la misma categoría con stock (o sin tope trackeado) para
+// ofrecerle al cliente en el mismo mensaje, en vez de que la IA tenga que
+// adivinar o consultar de nuevo.
+async function findStockAlternatives<T extends { id: string; name: string; categoryId: string | null }>(
+  products: T[],
+  categoryId: string,
+  excludeProductId: string,
+  sucursalId: string,
+): Promise<string[]> {
+  const sameCategory = products.filter((p) => p.categoryId === categoryId && p.id !== excludeProductId);
+  if (sameCategory.length === 0) return [];
+  const stock = await getAvailableStock(sameCategory.map((p) => p.id), sucursalId);
+  return sameCategory
+    .filter((p) => (stock.get(p.id) ?? 1) > 0)
+    .slice(0, 5)
+    .map((p) => p.name);
+}
+
 
 interface CreateOrderArgs {
   canal: "MOSTRADOR" | "DELIVERY";
@@ -235,6 +254,7 @@ type ItemArg = { nombre: string; cantidad?: number; sabores?: string[]; mitad2?:
 // cantidad-adentro-del-nombre) no queda resuelto en un solo lugar.
 async function resolveItemsForOrder(
   items: ItemArg[],
+  sucursalId: string,
 ): Promise<{ orderItems: OrderInput["items"] } | { error: string }> {
   const products = await prisma.product.findMany({ include: { category: true } });
   const promotions = await prisma.promotion.findMany({
@@ -372,6 +392,51 @@ async function resolveItemsForOrder(
     orderItems.push({ kind: "PROMOCION", promotionId: promotion.id, variableSelections });
   }
 
+  // No bloquea la venta manual desde el CRM (ver comentario en
+  // applySupplyDeductions) — pero acá la IA todavía está charlando con el
+  // cliente, así que sí conviene frenar antes de confirmar: mejor ofrecerle
+  // otro sabor ahora que dejarlo esperando un pedido que en la práctica no
+  // se puede armar entero.
+  const requestedByProduct = new Map<string, number>();
+  const addRequested = (productId: string, quantity: number) => {
+    requestedByProduct.set(productId, (requestedByProduct.get(productId) ?? 0) + quantity);
+  };
+  for (const orderItem of orderItems) {
+    if (orderItem.kind === "PRODUCTO") {
+      addRequested(orderItem.productId, orderItem.quantity);
+    } else if (orderItem.kind === "MEDIA_MEDIA") {
+      // Mismo criterio que al descontar stock real (ver create-order.ts):
+      // el insumo se cuenta una sola vez por pizza física, con la receta
+      // del primer sabor.
+      addRequested(orderItem.productId1, orderItem.quantity);
+    } else {
+      for (const selection of orderItem.variableSelections) {
+        for (const productId of selection.productIds) {
+          addRequested(productId, 1);
+        }
+      }
+    }
+  }
+
+  if (requestedByProduct.size > 0) {
+    const availableByProduct = await getAvailableStock([...requestedByProduct.keys()], sucursalId);
+    for (const [productId, requested] of requestedByProduct) {
+      const available = availableByProduct.get(productId);
+      if (available === undefined || requested <= available) continue;
+
+      const product = products.find((p) => p.id === productId);
+      const productName = product?.name ?? "ese sabor";
+      const alternatives = product?.categoryId
+        ? await findStockAlternatives(products, product.categoryId, productId, sucursalId)
+        : [];
+      const alternativesText = alternatives.length > 0 ? ` Opciones con stock: ${alternatives.join(", ")}.` : "";
+
+      return {
+        error: `Solo quedan ${available} unidad(es) de "${productName}" en stock (el pedido tiene ${requested}) — avisale al cliente cuánto queda de verdad y preguntale qué otro sabor quiere para completar los ${requested - available} que faltan.${alternativesText}`,
+      };
+    }
+  }
+
   return { orderItems };
 }
 
@@ -399,7 +464,7 @@ export async function handleCreateOrder(
     return "Para un pedido por envío hace falta la dirección de entrega — preguntásela al cliente antes de reintentar.";
   }
 
-  const resolved = await resolveItemsForOrder(args.items);
+  const resolved = await resolveItemsForOrder(args.items, sucursalId);
   if ("error" in resolved) return resolved.error;
   const orderItems = resolved.orderItems;
 
@@ -577,7 +642,7 @@ export async function handleModifyOrder(
   }
 
   if (args.items && args.items.length > 0) {
-    const resolved = await resolveItemsForOrder(args.items);
+    const resolved = await resolveItemsForOrder(args.items, sucursalId);
     if ("error" in resolved) return resolved.error;
 
     // El modelo a veces reenvía en `items` cosas que ya se habían agregado

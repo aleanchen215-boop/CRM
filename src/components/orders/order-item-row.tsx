@@ -85,14 +85,24 @@ export function OrderItemRow({
   control,
   onRemove,
   canRemove,
+  sucursalId,
 }: {
   index: number;
   control: Control<OrderFormValues>;
   onRemove: () => void;
   canRemove: boolean;
+  sucursalId?: string;
 }) {
   const { data: products } = trpc.products.list.useQuery({});
   const { data: promotions } = trpc.promotions.list.useQuery();
+  // Solo trae stock para sabores con receta cargada (ver
+  // ProductSupplyUsage) — los que no aparecen acá no tienen tope, se pueden
+  // pedir sin restricción.
+  const { data: stock } = trpc.products.availableStock.useQuery(
+    { sucursalId: sucursalId ?? "" },
+    { enabled: Boolean(sucursalId) },
+  );
+  const outOfStock = (productId: string) => (stock?.[productId] ?? Infinity) <= 0;
 
   return (
     <Controller
@@ -175,8 +185,9 @@ export function OrderItemRow({
                     </SelectTrigger>
                     <SelectContent>
                       {filteredProducts?.map((product) => (
-                        <SelectItem key={product.id} value={product.id}>
+                        <SelectItem key={product.id} value={product.id} disabled={outOfStock(product.id)}>
                           {product.name} ({formatCurrency(product.price)})
+                          {outOfStock(product.id) ? " — sin stock" : ""}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -244,7 +255,7 @@ export function OrderItemRow({
                       products={
                         products
                           ?.filter((p) => p.categoryId === promoItem.categoryId)
-                          .map((p) => ({ id: p.id, name: p.name })) ?? []
+                          .map((p) => ({ id: p.id, name: p.name, outOfStock: outOfStock(p.id) })) ?? []
                       }
                       productIds={
                         row.variableSelections.find((s) => s.promotionItemId === promoItem.id)

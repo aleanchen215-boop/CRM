@@ -97,6 +97,11 @@ export function OrderForm({
 
   const { fields, append, remove } = useFieldArray({ control: form.control, name: "items" });
   const watchedItems = useWatch({ control: form.control, name: "items" });
+  const watchedSucursalId = useWatch({ control: form.control, name: "sucursalId" });
+  // Para saber qué stock mirar en el picker de productos: la sucursal que se
+  // haya elegido en el form (si hace falta elegirla) o si no, la que ya está
+  // seleccionada arriba en el layout.
+  const stockSucursalId = watchedSucursalId || selectedSucursalId || undefined;
 
   const itemsTotal = (watchedItems ?? []).reduce((sum, row) => {
     if (row.rowType === "PROMOCION") {
@@ -299,6 +304,7 @@ export function OrderForm({
                   control={form.control}
                   onRemove={() => remove(index)}
                   canRemove={fields.length > 1}
+                  sucursalId={stockSucursalId}
                 />
               ))}
             </div>
