@@ -504,6 +504,11 @@ model Order {
   // "para las 21:30") — se muestra como cuadro aparte en Ventas ("Retira
   // 21:30" / "Envía 21:30"), no se mezcla con notes.
   scheduledFor    DateTime?
+  // Hora en que se imprimió la comanda por primera vez — mientras sea nula
+  // y el pedido no tenga vendedor (employeeId nulo = lo armó la IA por
+  // WhatsApp sin que nadie del local lo haya visto todavía), Ventas lo
+  // resalta con otro color para que no se pase por alto.
+  comandaPrintedAt DateTime?
   // Observaciones INTERNAS del local (ej. "cliente canceló por demora"),
   // sin relación con la preparación — a diferencia de `notes`, esto NUNCA
   // se imprime en la comanda, es solo para quien vende (útil porque Cajero

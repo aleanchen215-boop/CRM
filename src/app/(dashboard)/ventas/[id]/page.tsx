@@ -103,19 +103,6 @@ export default function OrderDetailPage({
   const searchParams = useSearchParams();
   const didAutoPrint = useRef(false);
 
-  // ?autoprint=1 dispara la impresión sola apenas carga el pedido — lo usa
-  // el flujo de "Nuevo pedido" (redirige acá con este query param) y el
-  // aviso de pedido nuevo por WhatsApp en la lista de Ventas. Se saca el
-  // parámetro de la URL después para que un refresh no vuelva a imprimir.
-  useEffect(() => {
-    if (order && searchParams.get("autoprint") === "1" && !didAutoPrint.current) {
-      didAutoPrint.current = true;
-      markAsHandled(id);
-      window.print();
-      router.replace(`/ventas/${id}`);
-    }
-  }, [order, searchParams, id, router]);
-
   const acknowledge = trpc.orders.acknowledgeChanges.useMutation({
     onSuccess: async () => {
       await Promise.all([
@@ -124,6 +111,30 @@ export default function OrderDetailPage({
       ]);
     },
   });
+
+  const markComandaPrinted = trpc.orders.markComandaPrinted.useMutation({
+    onSuccess: async () => {
+      await Promise.all([
+        utils.orders.getById.invalidate({ id }),
+        utils.orders.list.invalidate(),
+      ]);
+    },
+  });
+
+  // ?autoprint=1 dispara la impresión sola apenas carga el pedido — lo usa
+  // el flujo de "Nuevo pedido" (redirige acá con este query param) y el
+  // aviso de pedido nuevo por WhatsApp en la lista de Ventas. Se saca el
+  // parámetro de la URL después para que un refresh no vuelva a imprimir.
+  useEffect(() => {
+    if (order && searchParams.get("autoprint") === "1" && !didAutoPrint.current) {
+      didAutoPrint.current = true;
+      markAsHandled(id);
+      markComandaPrinted.mutate({ id });
+      window.print();
+      router.replace(`/ventas/${id}`);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [order, searchParams, id, router]);
 
   // Si el cliente modificó el pedido por WhatsApp, marcarlo como "visto" al
   // abrir el detalle (apaga el "!" en Ventas) — la cancelación pedida por el
@@ -204,7 +215,15 @@ export default function OrderDetailPage({
             status={order.status}
             cancelRequestedByCustomerAt={order.cancelRequestedByCustomerAt}
           />
-          <Button variant="outline" size="sm" onClick={() => window.print()}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              markAsHandled(id);
+              markComandaPrinted.mutate({ id });
+              window.print();
+            }}
+          >
             <Printer />
             Imprimir comprobante
           </Button>

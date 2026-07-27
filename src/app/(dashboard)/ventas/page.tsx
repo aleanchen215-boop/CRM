@@ -95,7 +95,15 @@ export default function VentasPage() {
                     href={`/ventas/${order.id}`}
                     className={cn(
                       "flex flex-col gap-1 rounded-lg border p-3 text-sm transition-colors hover:bg-muted/50",
-                      order.cancelRequestedByCustomerAt && "border-destructive/60 bg-destructive/5",
+                      // Pedido armado por la IA de WhatsApp (sin vendedor)
+                      // que todavía no se imprimió — se resalta para que no
+                      // se pase por alto hasta que alguien del local
+                      // efectivamente lo vea/imprima la comanda. El aviso de
+                      // cancelación pedida por el cliente es más urgente, así
+                      // que gana si ambos aplican a la vez.
+                      order.cancelRequestedByCustomerAt
+                        ? "border-destructive/60 bg-destructive/5"
+                        : !order.employeeId && !order.comandaPrintedAt && "border-violet-500/60 bg-violet-500/5",
                     )}
                   >
                     <div className="flex items-center justify-between gap-2">

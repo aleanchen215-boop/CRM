@@ -182,6 +182,23 @@ export const ordersRouter = router({
       return toNumber(order);
     }),
 
+  // Marca que la comanda ya se imprimió al menos una vez — apaga el resalte
+  // de "pedido por WhatsApp todavía no visto" en Ventas. Idempotente: no
+  // pisa la hora si ya se había marcado antes (ej. reimprimir de nuevo).
+  markComandaPrinted: requirePermission("orders:write")
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const current = await ctx.prisma.order.findUnique({ where: { id: input.id } });
+      if (!current) throw new TRPCError({ code: "NOT_FOUND" });
+      if (current.comandaPrintedAt) return toNumber(current);
+
+      const order = await ctx.prisma.order.update({
+        where: { id: input.id },
+        data: { comandaPrintedAt: new Date() },
+      });
+      return toNumber(order);
+    }),
+
   cancel: requirePermission("orders:cancel")
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
