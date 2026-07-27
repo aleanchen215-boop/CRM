@@ -67,7 +67,7 @@ export const CREATE_ORDER_TOOL: ChatCompletionTool = {
                 type: "array",
                 items: { type: "string" },
                 description:
-                  "SOLO si nombre es el nombre exacto de una PROMOCIÓN (tal como lo devolvió buscar_promociones) que tiene partes a elección: un nombre de producto por cada unidad elegida. Si nombre es un producto suelto (no una promo), NUNCA uses este campo — usá cantidad en cambio, aunque el cliente haya pedido varias unidades del mismo sabor (ej. 6 empanadas de jamón y queso sueltas = nombre: \"Jamon y queso\", cantidad: 6 — NO nombre: \"6 empanadas a elección\" con sabores repetidos).",
+                  "SOLO si nombre es el nombre exacto de una PROMOCIÓN (tal como lo devolvió buscar_promociones) que tiene partes a elección. Poné un elemento por cada sabor DISTINTO con la cantidad al frente (ej. para una docena 10 carne + 2 jamón y queso: [\"10 Carne Con Aceitunas\", \"2 Jamon y queso\"]) — NO hace falta repetir el mismo sabor varias veces en el array, y evitá contar mal en promos grandes (docena, 15 empanadas). Si nombre es un producto suelto (no una promo), NUNCA uses este campo — usá cantidad en cambio (ej. 6 empanadas de jamón y queso sueltas = nombre: \"Jamon y queso\", cantidad: 6 — NO nombre: \"6 empanadas a elección\" con sabores).",
               },
               mitad2: {
                 type: "string",
@@ -291,18 +291,30 @@ async function resolveItemsForOrder(
         ]),
     );
 
-    for (const sabor of item.sabores ?? []) {
-      const match = findProductMatch(products, sabor);
+    for (const saborEntry of item.sabores ?? []) {
+      // El modelo a veces manda "10 Carne Con Aceitunas" en vez de repetir el
+      // sabor 10 veces en el array (que le pedíamos antes) — con promos
+      // grandes (docena, 15 empanadas) contar y repetir 12-15 elementos a
+      // mano es justo el tipo de cuenta en la que un modelo chico se
+      // equivoca, y esa falla silenciosa dejaba al cliente trabado
+      // confirmando en loop sin que la IA supiera por qué. Se acepta ambos
+      // formatos: con cantidad al frente (se repite esa cantidad de veces) o
+      // un elemento por unidad como antes (cantidad implícita 1).
+      const { quantity: leadingQty, rest: saborName } = extractLeadingQuantity(saborEntry);
+      const repeatCount = leadingQty && leadingQty > 0 ? leadingQty : 1;
+      const match = findProductMatch(products, saborName);
       if (!match) {
-        return { error: `No encontré el sabor "${sabor}" para la promo "${promotion.name}" — confirmá el nombre con el cliente antes de reintentar.` };
+        return { error: `No encontré el sabor "${saborEntry}" para la promo "${promotion.name}" — confirmá el nombre con el cliente antes de reintentar.` };
       }
-      const slot = [...slots.values()].find(
-        (entry) => entry.categoryId === match.categoryId && entry.chosen.length < entry.quantity,
-      );
-      if (!slot) {
-        return { error: `"${sabor}" no corresponde a ninguna parte a elección disponible de la promo "${promotion.name}" (o ya se completó esa categoría) — confirmá con el cliente.` };
+      for (let i = 0; i < repeatCount; i++) {
+        const slot = [...slots.values()].find(
+          (entry) => entry.categoryId === match.categoryId && entry.chosen.length < entry.quantity,
+        );
+        if (!slot) {
+          return { error: `"${saborName}" no corresponde a ninguna parte a elección disponible de la promo "${promotion.name}" (o ya se completó esa categoría) — confirmá con el cliente.` };
+        }
+        slot.chosen.push(match.id);
       }
-      slot.chosen.push(match.id);
     }
 
     const variableSelections: { promotionItemId: string; productIds: string[] }[] = [];
@@ -422,7 +434,8 @@ export const MODIFY_ORDER_TOOL: ChatCompletionTool = {
               sabores: {
                 type: "array",
                 items: { type: "string" },
-                description: "Solo si nombre es una promoción con partes a elección.",
+                description:
+                  "Solo si nombre es una promoción con partes a elección. Poné un elemento por cada sabor DISTINTO con la cantidad al frente (ej. [\"10 Carne Con Aceitunas\", \"2 Jamon y queso\"]) — no hace falta repetir el mismo sabor varias veces.",
               },
               mitad2: {
                 type: "string",

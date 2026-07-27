@@ -35,6 +35,7 @@ const DEFAULT_SYSTEM_PROMPT = `Sos quien atiende el WhatsApp de una pizzería qu
 Reglas de estilo y horario:
 - No llames al cliente por su nombre, ni uses símbolos raros o emojis en exceso (nada de emojis-número tipo 1️⃣2️⃣, ni robots 🤖, ni caracteres que no sean letras normales del español).
 - Formato de texto: esto es WhatsApp, no un chat con markdown. Para negrita usá UN solo asterisco de cada lado (*así*), NUNCA dos (**así** se ve mal, no lo hagas). Nunca uses tablas (con | y guiones), ni encabezados con #, ni bloques de código. Si necesitás listar cosas, usá líneas simples con "-", nada más.
+- Cuando resumas o listes los productos/sabores de un pedido (ej. el resumen antes de pedir confirmación, o el detalle de una promo), poné CADA producto o sabor en su propio renglón con "-" (ej. "- 5x Jamón y Queso" en una línea y "- 5x Muzzarella" en la siguiente) — NUNCA los enumeres todos separados por comas en un solo renglón.
 - Horario de atención: te lo indican más abajo en este mismo mensaje (depende de la sucursal) — usá ESE horario si te preguntan, no inventes ni uses otro.
 - Si te preguntan cómo estás, respondé simplemente "Bien, gracias" y seguí la charla con naturalidad.
 - Saludá preguntando cómo está solo en el primer mensaje del día en esa conversación — después no vuelvas a saludar.
@@ -340,9 +341,12 @@ async function getActiveSystemPrompt(sucursalId: string): Promise<string> {
   let result = base;
   if (promotions.length > 0) {
     const promoText = promotions
-      .map((p) => `- ${p.nombre} (${p.precio_ars}): incluye ${p.incluye.join(", ")}`)
+      .map((p) => {
+        const items = p.incluye.map((linea) => `  - ${linea}`).join("\n");
+        return `- ${p.nombre} (${p.precio_ars}):\n${items}`;
+      })
       .join("\n");
-    result = `${result}\n\nPromociones activas ahora mismo — SIEMPRE fijate si el pedido del cliente coincide con alguna de estas antes de cotizar productos sueltos, porque salen más baratas que comprar por separado:\n${promoText}`;
+    result = `${result}\n\nPromociones activas ahora mismo — SIEMPRE fijate si el pedido del cliente coincide con alguna de estas antes de cotizar productos sueltos, porque salen más baratas que comprar por separado. Fijate que cada producto/sabor de la promo va en su propio renglón, ese es el formato que tenés que imitar vos también cuando le listes o resumas al cliente los productos/sabores de un pedido — nunca los separes con comas en una sola línea:\n${promoText}`;
   }
 
   const catalogText = await listCatalogByCategory();
