@@ -212,25 +212,6 @@ function ambiguousFlavorError(query: string, matches: { name: string }[]): strin
   return `"${query}" es ambiguo, puede ser cualquiera de estos sabores: ${options} — preguntale al cliente cuál de esos quiere exactamente (no elijas vos uno) antes de reintentar.`;
 }
 
-// Otros sabores de la misma categoría con stock (o sin tope trackeado) para
-// ofrecerle al cliente en el mismo mensaje, en vez de que la IA tenga que
-// adivinar o consultar de nuevo.
-async function findStockAlternatives<T extends { id: string; name: string; categoryId: string | null }>(
-  products: T[],
-  categoryId: string,
-  excludeProductId: string,
-  sucursalId: string,
-): Promise<string[]> {
-  const sameCategory = products.filter((p) => p.categoryId === categoryId && p.id !== excludeProductId);
-  if (sameCategory.length === 0) return [];
-  const stock = await getAvailableStock(sameCategory.map((p) => p.id), sucursalId);
-  return sameCategory
-    .filter((p) => (stock.get(p.id) ?? 1) > 0)
-    .slice(0, 5)
-    .map((p) => p.name);
-}
-
-
 interface CreateOrderArgs {
   canal: "MOSTRADOR" | "DELIVERY";
   direccion?: string;
@@ -392,11 +373,10 @@ async function resolveItemsForOrder(
     orderItems.push({ kind: "PROMOCION", promotionId: promotion.id, variableSelections });
   }
 
-  // No bloquea la venta manual desde el CRM (ver comentario en
-  // applySupplyDeductions) — pero acá la IA todavía está charlando con el
-  // cliente, así que sí conviene frenar antes de confirmar: mejor ofrecerle
-  // otro sabor ahora que dejarlo esperando un pedido que en la práctica no
-  // se puede armar entero.
+  // La IA todavía está charlando con el cliente en este punto, así que
+  // conviene frenar acá con un mensaje claro (en vez de dejar que falle más
+  // abajo al confirmar, ver applySupplyDeductions) para que pueda
+  // preguntarle con qué quiere completar el pedido.
   const requestedByProduct = new Map<string, number>();
   const addRequested = (productId: string, quantity: number) => {
     requestedByProduct.set(productId, (requestedByProduct.get(productId) ?? 0) + quantity);
@@ -426,13 +406,9 @@ async function resolveItemsForOrder(
 
       const product = products.find((p) => p.id === productId);
       const productName = product?.name ?? "ese sabor";
-      const alternatives = product?.categoryId
-        ? await findStockAlternatives(products, product.categoryId, productId, sucursalId)
-        : [];
-      const alternativesText = alternatives.length > 0 ? ` Opciones con stock: ${alternatives.join(", ")}.` : "";
 
       return {
-        error: `Solo quedan ${available} unidad(es) de "${productName}" en stock (el pedido tiene ${requested}) — avisale al cliente cuánto queda de verdad y preguntale qué otro sabor quiere para completar los ${requested - available} que faltan.${alternativesText}`,
+        error: `Solo quedan ${available} unidad(es) de "${productName}" en stock (el pedido tiene ${requested}) — avisale al cliente cuánto queda de verdad y preguntale con qué sabor quiere completar los ${requested - available} que faltan. NO le sugieras ni le listes sabores puntuales, solo preguntá.`,
       };
     }
   }

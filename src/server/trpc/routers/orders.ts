@@ -5,7 +5,7 @@ import type { OrderInput } from "@/lib/validation/order";
 import { requirePermission, router } from "@/server/trpc/trpc";
 import { resolveSucursalFilter, resolveSucursalForWrite } from "@/server/trpc/sucursal";
 import { sendWhatsappTextMessage } from "@/server/integrations/whatsapp/client";
-import { createOrder, addItemsToOrder, removeOrderItemRow, reconcilePromotions } from "@/server/orders/create-order";
+import { createOrder, addItemsToOrder, removeOrderItemRow, reconcilePromotions, cancelOrder } from "@/server/orders/create-order";
 import { getAvailableStock, computeRequestedQuantities } from "@/server/stock/availability";
 import type { PrismaClient } from "@/generated/prisma/client";
 
@@ -214,8 +214,11 @@ export const ordersRouter = router({
     }),
 
   // Marca que la comanda ya se imprimió al menos una vez — apaga el resalte
-  // de "pedido por WhatsApp todavía no visto" en Ventas. Idempotente: no
-  // pisa la hora si ya se había marcado antes (ej. reimprimir de nuevo).
+  // de "pedido por WhatsApp todavía no visto" en Ventas, y de paso confirma
+  // el pedido (PENDIENTE -> CONFIRMADO): imprimir la comanda es la señal de
+  // que alguien del local ya lo vio y lo está preparando, sea que haya
+  // entrado por WhatsApp o se haya cargado a mano. Idempotente: no pisa la
+  // hora ni el status de nuevo si ya se había marcado antes (ej. reimprimir).
   markComandaPrinted: requirePermission("orders:write")
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
@@ -225,22 +228,19 @@ export const ordersRouter = router({
 
       const order = await ctx.prisma.order.update({
         where: { id: input.id },
-        data: { comandaPrintedAt: new Date() },
+        data: {
+          comandaPrintedAt: new Date(),
+          status: current.status === "PENDIENTE" ? "CONFIRMADO" : current.status,
+        },
       });
       return toNumber(order);
     }),
 
   cancel: requirePermission("orders:cancel")
     .input(z.object({ id: z.string() }))
-    .mutation(async ({ ctx, input }) => {
-      const current = await ctx.prisma.order.findUnique({ where: { id: input.id } });
-      if (!current) throw new TRPCError({ code: "NOT_FOUND" });
-
-      const order = await ctx.prisma.order.update({
-        where: { id: input.id },
-        data: { status: "CANCELADO" },
-      });
-
+    .mutation(async ({ input }) => {
+      const order = await cancelOrder(input.id);
+      if (!order) throw new TRPCError({ code: "NOT_FOUND" });
       return toNumber(order);
     }),
 

@@ -384,6 +384,43 @@ export async function removeItemsFromOrder(
   });
 }
 
+// Reconstruye qué insumos devolver a partir de `selections`/productId
+// guardados en un OrderItem ya creado — mismo criterio que resolveOrderItem
+// al descontarlos (una promo devuelve lo de cada renglón fijo/variable; un
+// producto suelto o mitad y mitad devuelve la receta del producto ancla una
+// sola vez por unidad física). Se usa tanto para sacar un renglón puntual
+// como para cancelar el pedido entero.
+function deductionsForOrderItem(item: {
+  promotionId: string | null;
+  productId: string | null;
+  selections: unknown;
+  quantity: number;
+}): SupplyDeduction[] {
+  const deductions: SupplyDeduction[] = [];
+  if (item.promotionId) {
+    const selections = Array.isArray(item.selections)
+      ? (item.selections as Array<Record<string, unknown>>)
+      : [];
+    for (const selection of selections) {
+      if (selection["type"] === "FIJO" && selection["productId"]) {
+        deductions.push({
+          productId: selection["productId"] as string,
+          quantity: (selection["cantidad"] as number) ?? 1,
+        });
+      } else if (selection["type"] === "VARIABLE" && Array.isArray(selection["productos"])) {
+        for (const producto of selection["productos"] as Array<{ productId?: string }>) {
+          if (producto.productId) deductions.push({ productId: producto.productId, quantity: 1 });
+        }
+      }
+    }
+  } else if (item.productId) {
+    // Producto suelto o mitad y mitad: la receta se descuenta una sola vez
+    // por unidad física (ver resolveOrderItem), da igual si es MEDIA_MEDIA.
+    deductions.push({ productId: item.productId, quantity: item.quantity });
+  }
+  return deductions;
+}
+
 // Saca un renglón COMPLETO del pedido (producto suelto, promo, o mitad y
 // mitad) — a diferencia de removeItemsFromOrder (que resta cantidad de
 // productos sueltos puntuales, pensada para el asistente de WhatsApp), esta
@@ -398,36 +435,37 @@ export async function removeOrderItemRow(orderId: string, orderItemId: string) {
     const item = await tx.orderItem.findUnique({ where: { id: orderItemId } });
     if (!item || item.orderId !== orderId) return null;
 
-    // Reconstruye qué insumos devolver a partir de `selections`/productId
-    // guardados — mismo criterio que resolveOrderItem al descontarlos.
-    const deductions: SupplyDeduction[] = [];
-    if (item.promotionId) {
-      const selections = Array.isArray(item.selections)
-        ? (item.selections as Array<Record<string, unknown>>)
-        : [];
-      for (const selection of selections) {
-        if (selection["type"] === "FIJO" && selection["productId"]) {
-          deductions.push({
-            productId: selection["productId"] as string,
-            quantity: (selection["cantidad"] as number) ?? 1,
-          });
-        } else if (selection["type"] === "VARIABLE" && Array.isArray(selection["productos"])) {
-          for (const producto of selection["productos"] as Array<{ productId?: string }>) {
-            if (producto.productId) deductions.push({ productId: producto.productId, quantity: 1 });
-          }
-        }
-      }
-    } else if (item.productId) {
-      // Producto suelto o mitad y mitad: la receta se descuenta una sola vez
-      // por unidad física (ver resolveOrderItem), da igual si es MEDIA_MEDIA.
-      deductions.push({ productId: item.productId, quantity: item.quantity });
-    }
+    const deductions = deductionsForOrderItem(item);
 
     await tx.orderItem.delete({ where: { id: item.id } });
 
     const updated = await tx.order.update({
       where: { id: orderId },
       data: { total: Number(order.total) - Number(item.unitPrice) * item.quantity },
+    });
+
+    await applySupplyDeductions(tx, order.sucursalId, deductions, "ENTRADA");
+
+    return updated;
+  });
+}
+
+// Cancela un pedido y devuelve al stock todo lo que se había descontado al
+// crearlo/modificarlo — antes cancelar solo cambiaba el status y el insumo
+// quedaba descontado para siempre, como si la venta hubiera seguido en pie.
+// Idempotente: si ya estaba cancelado, no vuelve a sumar el stock de nuevo.
+export async function cancelOrder(orderId: string) {
+  return prisma.$transaction(async (tx) => {
+    const order = await tx.order.findUnique({ where: { id: orderId } });
+    if (!order) return null;
+    if (order.status === "CANCELADO") return order;
+
+    const items = await tx.orderItem.findMany({ where: { orderId } });
+    const deductions = items.flatMap((item) => deductionsForOrderItem(item));
+
+    const updated = await tx.order.update({
+      where: { id: orderId },
+      data: { status: "CANCELADO" },
     });
 
     await applySupplyDeductions(tx, order.sucursalId, deductions, "ENTRADA");

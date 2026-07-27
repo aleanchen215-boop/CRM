@@ -62,13 +62,15 @@ function itemLabel(item: {
 
 // "12x Jamón y Queso" en vez de repetir "Jamón y Queso" doce veces seguidas
 // — cuenta cuántas unidades de cada sabor distinto hay en la parte a
-// elección de la promo (ej. 6 de un sabor + 6 de otro → "6x A, 6x B").
-function groupBySabor(productos: { nombre: string }[]): string {
+// elección de la promo (ej. 6 de un sabor + 6 de otro → ["6x A", "6x B"]).
+// Devuelve un renglón por sabor (no un string unido por comas): así se
+// imprime cada uno en su propia línea en la comanda, no todos seguidos.
+function groupBySabor(productos: { nombre: string }[]): string[] {
   const counts = new Map<string, number>();
   for (const producto of productos) {
     counts.set(producto.nombre, (counts.get(producto.nombre) ?? 0) + 1);
   }
-  return [...counts.entries()].map(([nombre, cantidad]) => `${cantidad}x ${nombre}`).join(", ");
+  return [...counts.entries()].map(([nombre, cantidad]) => `${cantidad}x ${nombre}`);
 }
 
 function ItemDetail({ selections }: { selections: unknown }) {
@@ -82,7 +84,12 @@ function ItemDetail({ selections }: { selections: unknown }) {
           </li>
         ) : selection.type === "VARIABLE" ? (
           <li key={index}>
-            {selection.categoria} a elección: {groupBySabor(selection.productos)}
+            {selection.categoria} a elección:
+            <ul className="pl-3">
+              {groupBySabor(selection.productos).map((linea) => (
+                <li key={linea}>{linea}</li>
+              ))}
+            </ul>
           </li>
         ) : null,
       )}
