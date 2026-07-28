@@ -82,7 +82,7 @@ export const CREATE_ORDER_TOOL: ChatCompletionTool = {
         observaciones: {
           type: "string",
           description:
-            "Pedidos especiales del cliente sobre la preparación (ej. \"bien dorada\", \"sin cebolla\", \"cortada en 8\"). SOLO si el cliente dice algo así explícitamente — no inventes ni asumas nada. Omitir si no dijo nada especial.",
+            "Pedidos especiales del cliente sobre la preparación (ej. \"bien dorada\", \"sin cebolla\", \"cortada en 8\"), Y/O el sabor real de una bebida cuando no es Coca-Cola común (ej. \"Bebida: Sprite\", \"Bebida: Coca-Cola Zero\") — ver reglas de bebidas del prompt. Si hay más de una nota, separalas con punto y coma. SOLO poné lo que el cliente dijo explícitamente — no inventes ni asumas nada. Omitir si no aplica ninguna de las dos cosas.",
         },
         horaProgramada: {
           type: "string",
@@ -583,7 +583,7 @@ export const MODIFY_ORDER_TOOL: ChatCompletionTool = {
         observaciones: {
           type: "string",
           description:
-            "Pedidos especiales nuevos sobre la preparación que el cliente menciona ahora (ej. \"bien dorada\"). Se suman a las que ya hubiera, no las reemplazan. Omitir si no dijo nada especial en este mensaje.",
+            "Pedidos especiales nuevos sobre la preparación que el cliente menciona ahora (ej. \"bien dorada\"), Y/O el sabor real de una bebida nueva que no sea Coca-Cola común (ej. \"Bebida: Fanta\") — ver reglas de bebidas del prompt. Se suman a las que ya hubiera, no las reemplazan. Omitir si no dijo nada especial en este mensaje.",
         },
         horaProgramada: {
           type: "string",
