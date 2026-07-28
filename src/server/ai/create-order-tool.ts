@@ -13,7 +13,6 @@ import {
   updatePendingOrderSchedule,
 } from "@/server/orders/create-order";
 import { createMercadoPagoPreference } from "@/server/integrations/mercadopago/client";
-import { aliasDrinkBrands } from "@/server/ai/drink-aliases";
 import { getAvailableStock } from "@/server/stock/availability";
 import type { OrderInput } from "@/lib/validation/order";
 
@@ -82,7 +81,7 @@ export const CREATE_ORDER_TOOL: ChatCompletionTool = {
         observaciones: {
           type: "string",
           description:
-            "Pedidos especiales del cliente sobre la preparación (ej. \"bien dorada\", \"sin cebolla\", \"cortada en 8\"), Y/O el sabor real de una bebida cuando no es Coca-Cola común (ej. \"Bebida: Sprite\", \"Bebida: Coca-Cola Zero\") — ver reglas de bebidas del prompt. Si hay más de una nota, separalas con punto y coma. SOLO poné lo que el cliente dijo explícitamente — no inventes ni asumas nada. Omitir si no aplica ninguna de las dos cosas.",
+            "Pedidos especiales del cliente sobre la preparación (ej. \"bien dorada\", \"sin cebolla\", \"cortada en 8\"). SOLO si el cliente dice algo así explícitamente — no inventes ni asumas nada. Omitir si no dijo nada especial.",
         },
         horaProgramada: {
           type: "string",
@@ -169,14 +168,10 @@ function findProductMatches<T extends { name: string; sku: string | null }>(
   products: T[],
   query: string,
 ): T[] {
-  // "sprite"/"fanta" no existen como producto propio — se venden como
-  // Coca-Cola del tamaño pedido (instrucción del dueño), así que se
-  // resuelven acá mismo en vez de depender de que el modelo lo recuerde.
-  const aliasedQuery = aliasDrinkBrands(query);
-  const normalizedQuery = normalize(aliasedQuery);
+  const normalizedQuery = normalize(query);
   const skuMatch = products.find((product) => product.sku && normalize(product.sku) === normalizedQuery);
   if (skuMatch) return [skuMatch];
-  return findAllMatches(products, (p) => p.name, aliasedQuery);
+  return findAllMatches(products, (p) => p.name, query);
 }
 
 // El modelo a veces mete la cantidad adentro del texto de "nombre" (ej.
@@ -583,7 +578,7 @@ export const MODIFY_ORDER_TOOL: ChatCompletionTool = {
         observaciones: {
           type: "string",
           description:
-            "Pedidos especiales nuevos sobre la preparación que el cliente menciona ahora (ej. \"bien dorada\"), Y/O el sabor real de una bebida nueva que no sea Coca-Cola común (ej. \"Bebida: Fanta\") — ver reglas de bebidas del prompt. Se suman a las que ya hubiera, no las reemplazan. Omitir si no dijo nada especial en este mensaje.",
+            "Pedidos especiales nuevos sobre la preparación que el cliente menciona ahora (ej. \"bien dorada\"). Se suman a las que ya hubiera, no las reemplazan. Omitir si no dijo nada especial en este mensaje.",
         },
         horaProgramada: {
           type: "string",

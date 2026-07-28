@@ -9,7 +9,6 @@ import {
   handleCreateOrder,
   handleModifyOrder,
 } from "@/server/ai/create-order-tool";
-import { aliasDrinkBrands } from "@/server/ai/drink-aliases";
 import { getAvailableStock } from "@/server/stock/availability";
 
 // Vía OpenRouter (openrouter.ai) en vez de OpenAI directo, para poder usar
@@ -46,7 +45,7 @@ Qué vendemos (esto es fijo, no lo cuestiones ni inventes variantes):
 - Las pizzas son de un SOLO tamaño (no hay chica/mediana/grande ni 30/35/40cm) y no tienen variantes de cocción ni agregados ("extra queso", "más dorada", etc.) — NUNCA preguntes por tamaño ni por ese tipo de opciones, no existen aunque sean comunes en otras pizzerías. Las pizzas solo varían por sabor (muzzarella, jamón, jamón y morrón, etc., según lo que haya cargado en el catálogo). Para una pizza preguntás únicamente sabor y cantidad — nada más. Si el cliente pregunta por tamaño o pide un agregado que no existe, decile claramente que la pizza es de un solo tamaño/sin esa opción y seguí con el sabor.
 - SÍ existe la media pizza: si el cliente pide "media" de un sabor combinada con otro sabor distinto (pizza mitad y mitad), usá el campo mitad2 en crear_pedido/modificar_pedido (nombre = primer sabor, mitad2 = segundo sabor). Si pide media pizza de UN solo sabor (sin combinar), usá cantidad: 0.5 en ese renglón, sin mitad2. En ningún caso calcules el precio vos ni lo menciones de antemano — el sistema lo calcula solo y te lo devuelve en la respuesta de la herramienta.
 - Las empanadas también son de un solo tamaño y solo varían por sabor. Para empanadas preguntás únicamente sabor y cantidad.
-- Bebidas: manejamos gaseosa Coca-Cola en lata, 500ml, 1 litro y 1.5 litros — es la única marca que tenemos cargada. Si el cliente pide "una coca" o Coca-Cola Zero, cotizala con el producto Coca-Cola del tamaño que corresponda vía buscar_productos. Si en cambio pide Sprite o Fanta, decile que sí tenemos — NUNCA le aclares que en realidad es Coca-Cola ni lo corrijas — y usá el precio de Coca-Cola del tamaño que pidió (buscála con buscar_productos como con cualquier bebida, es el mismo producto del catálogo). Si un pedido de pizza + gaseosa (mencionen Coca, Coca-Cola Zero, Sprite o Fanta, da igual cuál) coincide con una promo activa que combine esa pizza con Coca-Cola, aplicá esa promo igual sin aclarar nada de la sustitución — ej. "una muzza con una sprite" corresponde a la promo Muzzarella + Coca-Cola si existe. Si lo que pidió fue Coca-Cola Zero, Sprite o Fanta (no la Coca-Cola común), anotalo en el campo observaciones de crear_pedido/modificar_pedido (ej. "Bebida: Sprite", "Bebida: Coca-Cola Zero") para que en el local sepan qué entregar — es solo una nota interna, nunca se la menciones al cliente. Si pidió la Coca-Cola común, no hace falta ninguna observación. Preguntá el tamaño de la bebida solo si no lo dijeron.
+- Bebidas: manejamos gaseosa Coca-Cola, Coca-Cola Zero, Sprite y Fanta, cada una en lata, 500ml, 1 litro y 1.5 litros — son productos distintos y reales del catálogo, cada uno con su propio nombre (ej. "Sprite 1.5 L", "Coca Cola Zero Lata"). Buscalas con buscar_productos como a cualquier otro producto, sin ningún manejo especial. Preguntá el tamaño de la bebida solo si no lo dijeron.
 - Si el cliente pide un sabor o tamaño de forma ambigua (ej. "empanadas de carne", "de Roquefort", o una bebida sin decir el tamaño) y buscar_productos (o el catálogo completo más abajo en este mensaje) te devuelve MÁS DE UN sabor/tamaño que matchea, NUNCA elijas uno por tu cuenta — listale exactamente las opciones que encontraste en ESE momento (fijate en el catálogo completo, no te bases en sabores que recuerdes de ejemplos) y preguntale cuál quiere.
 - El catálogo completo que aparece más abajo en este mensaje es la única fuente de verdad de qué sabores/productos existen — nunca le digas al cliente que no tenemos un sabor que SÍ está en esa lista, ni inventes que faltan opciones que no verificaste ahí.
 - Si el cliente pregunta qué lleva o qué ingredientes tiene una pizza/empanada, usá buscar_productos y respondé con el campo "ingredientes" tal cual — nunca inventes ingredientes. Si ese producto no tiene ingredientes cargados todavía, decilo con naturalidad ("no tengo esa info cargada, preguntale al local") en vez de inventar una lista.
@@ -215,7 +214,7 @@ async function searchProducts(
   // más simple y más tolerante que armar el WHERE ideal en SQL.
   const products = await prisma.product.findMany({ take: 200, include: { category: true } });
 
-  const normalizedQuery = normalize(aliasDrinkBrands(query));
+  const normalizedQuery = normalize(query);
 
   // Cuando el cliente pregunta el precio de varias unidades, el subtotal se
   // calcula ACÁ (no en el modelo) — un modelo gratuito multiplicando de

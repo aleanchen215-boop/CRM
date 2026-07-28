@@ -131,6 +131,7 @@ export function CustomerForm(props: CustomerFormProps) {
         <Field>
           <FieldLabel htmlFor="address">Dirección</FieldLabel>
           <Input id="address" {...form.register("address")} />
+          <FieldError errors={[form.formState.errors.address]} />
         </Field>
 
         <div className="grid grid-cols-3 gap-3">

@@ -11,7 +11,7 @@ export const customerInputSchema = z.object({
     .min(6, "Número inválido")
     .regex(/^\+?[0-9\s-]+$/, "Solo números, espacios y guiones"),
   email: z.union([z.literal(""), z.email("Email inválido")]).optional(),
-  address: z.string().trim().optional(),
+  address: z.string().trim().min(1, "Requerido"),
   city: z.string().trim().optional(),
   province: z.string().trim().optional(),
   country: z.string().trim().optional(),
