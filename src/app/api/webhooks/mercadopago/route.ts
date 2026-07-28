@@ -56,6 +56,16 @@ export async function POST(request: Request) {
 
   const status = MP_STATUS_TO_PAYMENT_STATUS[payment.status] ?? "PENDIENTE";
 
+  // Mercado Pago manda esta notificación más de una vez para el mismo pago
+  // (reintentos, o varios eventos que resuelven al mismo status) — sin este
+  // chequeo, cada reenvío volvía a mandarle al cliente "recibimos tu pago"
+  // por WhatsApp. Se compara contra el status que tenía ANTES de este
+  // webhook: si ya estaba aprobado, esta notificación es un duplicado.
+  const existingPayment = await prisma.payment.findUnique({
+    where: { mercadoPagoPaymentId: String(payment.id) },
+  });
+  const alreadyNotified = existingPayment?.status === "APROBADO";
+
   await prisma.payment.upsert({
     where: { mercadoPagoPaymentId: String(payment.id) },
     create: {
@@ -68,7 +78,7 @@ export async function POST(request: Request) {
     update: { status },
   });
 
-  if (status === "APROBADO") {
+  if (status === "APROBADO" && !alreadyNotified) {
     const conversation = await prisma.conversation.findFirst({
       where: { customerId: order.customerId, sucursalId: order.sucursalId, status: { not: "CERRADA" } },
       orderBy: { lastMessageAt: "desc" },
