@@ -16,6 +16,14 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
+// Mismo criterio que SupplyTable: empanadas primero, el resto (prepizzas,
+// bolsas de muzzarella, insumos sueltos) separado abajo — según si el
+// insumo está vinculado a algún producto de la categoría "Empanadas", no
+// por nombre.
+function isEmpanadaSupply(supply: { productUsages: { product: { category: { name: string } | null } | null }[] }) {
+  return supply.productUsages.some((usage) => usage.product?.category?.name === "Empanadas");
+}
+
 function WasteRowControl({
   supplyId,
   currentQuantity,
@@ -111,6 +119,9 @@ function WasteRowControl({
 export function WasteSupplies({ sucursalId }: { sucursalId: string }) {
   const { data: supplies, isLoading } = trpc.supplies.list.useQuery({ sucursalId });
 
+  const empanadaSupplies = supplies?.filter(isEmpanadaSupply) ?? [];
+  const otherSupplies = supplies?.filter((supply) => !isEmpanadaSupply(supply)) ?? [];
+
   return (
     <Card>
       <CardHeader>
@@ -144,7 +155,26 @@ export function WasteSupplies({ sucursalId }: { sucursalId: string }) {
                 </TableCell>
               </TableRow>
             )}
-            {supplies?.map((supply) => (
+            {empanadaSupplies.map((supply) => (
+              <TableRow key={supply.id}>
+                <TableCell className="font-medium">{supply.name}</TableCell>
+                <TableCell className="text-muted-foreground">
+                  {supply.quantity}
+                  {supply.unit ? ` ${supply.unit}` : ""}
+                </TableCell>
+                <TableCell>
+                  <WasteRowControl supplyId={supply.id} currentQuantity={supply.quantity} />
+                </TableCell>
+              </TableRow>
+            ))}
+            {empanadaSupplies.length > 0 && otherSupplies.length > 0 && (
+              <TableRow className="hover:bg-transparent">
+                <TableCell colSpan={3} className="bg-muted/40 py-1.5 text-xs font-medium text-muted-foreground">
+                  Otros insumos
+                </TableCell>
+              </TableRow>
+            )}
+            {otherSupplies.map((supply) => (
               <TableRow key={supply.id}>
                 <TableCell className="font-medium">{supply.name}</TableCell>
                 <TableCell className="text-muted-foreground">
