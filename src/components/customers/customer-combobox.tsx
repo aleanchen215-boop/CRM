@@ -22,12 +22,13 @@ function customerLabel(customer: { firstName: string; lastName: string; whatsapp
   return `${customer.firstName} ${customer.lastName} — ${customer.whatsapp}`;
 }
 
-// Si lo que se tipeó son básicamente dígitos (con algún +, espacio o
-// guión de por medio) lo tratamos como número de teléfono para poder
-// ofrecer "crear cliente con este número" — un nombre de pila no cuenta.
-function isPhoneLike(text: string) {
-  const digitsOnly = text.replace(/[\s\-()+]/g, "");
-  return digitsOnly.length >= 6 && /^\d+$/.test(digitsOnly);
+// La opción "crear cliente" tiene que sobrevivir siempre al filtro interno
+// del combobox (aunque lo tipeado no matchee ningún cliente existente) —
+// si no, cuando no hay resultados no queda forma de dar de alta a nadie.
+function comboboxFilter(item: ComboItem, query: string) {
+  if (item.value === NEW_CUSTOMER_VALUE) return true;
+  if (!query) return true;
+  return item.label.toLowerCase().includes(query.toLowerCase());
 }
 
 export function CustomerCombobox({
@@ -46,12 +47,11 @@ export function CustomerCombobox({
   const { data: customers } = trpc.customers.list.useQuery({});
   const [inputValue, setInputValue] = useState("");
 
-  // Si lo tipeado parece un teléfono y no coincide con ningún cliente
-  // cargado, la opción de crear cliente nuevo se ofrece con ese número ya
-  // puesto, para no tener que volver a escribirlo en el formulario.
+  // Si lo tipeado no coincide con ningún cliente cargado, la opción de
+  // crear cliente nuevo se ofrece con ese texto ya puesto (normalmente un
+  // número de teléfono), para no tener que volver a escribirlo en el alta.
   const trimmedInput = inputValue.trim();
-  const phoneQuery = isPhoneLike(trimmedInput) ? trimmedInput : undefined;
-  const newCustomerLabel = phoneQuery ? `Crear cliente con el número "${phoneQuery}"…` : "Nuevo cliente…";
+  const newCustomerLabel = trimmedInput ? `Crear cliente con "${trimmedInput}"…` : "Nuevo cliente…";
 
   const items: ComboItem[] = [
     { value: NEW_CUSTOMER_VALUE, label: newCustomerLabel },
@@ -66,13 +66,14 @@ export function CustomerCombobox({
       value={selected}
       inputValue={inputValue}
       onInputValueChange={setInputValue}
+      filter={comboboxFilter}
       onValueChange={(item) => {
         if (!item) {
           onChange("");
           return;
         }
         if (item.value === NEW_CUSTOMER_VALUE) {
-          onCreateNew(phoneQuery);
+          onCreateNew(trimmedInput || undefined);
           return;
         }
         onChange(item.value);

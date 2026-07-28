@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Controller, useFieldArray, useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
-import { ArrowLeft, Plus } from "lucide-react";
+import { ArrowLeft, Pencil, Plus } from "lucide-react";
 import {
   paymentMethodValues,
   salesChannelValues,
@@ -73,6 +73,11 @@ export function OrderForm({
   const { selectedSucursalId } = useSucursalSelection();
   const [newCustomerOpen, setNewCustomerOpen] = useState(false);
   const [newCustomerPrefill, setNewCustomerPrefill] = useState<string | undefined>(undefined);
+  // Cuando se precarga la dirección guardada del cliente, se muestra como
+  // texto fijo con un lápiz al lado en vez de un input editable directo —
+  // así se ve claro que es la dirección guardada, sin poder pisarla sin
+  // querer. El lápiz pasa a modo edición normal.
+  const [addressLocked, setAddressLocked] = useState(false);
 
   // Solo hace falta elegir sucursal si quien crea el pedido no está atado a
   // una sola (el servidor la exige en ese caso) — se precarga con la que
@@ -98,6 +103,7 @@ export function OrderForm({
   const { fields, append, remove } = useFieldArray({ control: form.control, name: "items" });
   const watchedItems = useWatch({ control: form.control, name: "items" });
   const watchedSucursalId = useWatch({ control: form.control, name: "sucursalId" });
+  const watchedShippingAddress = useWatch({ control: form.control, name: "shippingAddress" });
   // Para saber qué stock mirar en el picker de productos: la sucursal que se
   // haya elegido en el form (si hace falta elegirla) o si no, la que ya está
   // seleccionada arriba en el layout.
@@ -203,10 +209,17 @@ export function OrderForm({
                     field.onChange(customerId);
                     // Precarga la dirección guardada del cliente si el pedido
                     // es delivery y todavía no se escribió nada — no pisa lo
-                    // que el usuario ya haya tipeado.
+                    // que el usuario ya haya tipeado. Si tiene dirección
+                    // guardada, queda en modo "solo lectura + lápiz" para
+                    // dejar claro que es la guardada antes de tocarla.
                     if (channel === "DELIVERY" && !form.getValues("shippingAddress")) {
                       const customer = customers?.find((c) => c.id === customerId);
-                      if (customer?.address) form.setValue("shippingAddress", customer.address);
+                      if (customer?.address) {
+                        form.setValue("shippingAddress", customer.address);
+                        setAddressLocked(true);
+                      } else {
+                        setAddressLocked(false);
+                      }
                     }
                   }}
                 />
@@ -243,11 +256,26 @@ export function OrderForm({
           {channel === "DELIVERY" && (
             <Field>
               <FieldLabel htmlFor="shippingAddress">Dirección de entrega</FieldLabel>
-              <Input
-                id="shippingAddress"
-                placeholder="Calle, número, referencia…"
-                {...form.register("shippingAddress")}
-              />
+              {addressLocked ? (
+                <div className="flex items-center gap-2 rounded-md border border-input bg-muted/40 px-3 py-1.5 text-sm">
+                  <span className="flex-1 truncate">{watchedShippingAddress}</span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-xs"
+                    onClick={() => setAddressLocked(false)}
+                    aria-label="Editar dirección"
+                  >
+                    <Pencil />
+                  </Button>
+                </div>
+              ) : (
+                <Input
+                  id="shippingAddress"
+                  placeholder="Calle, número, referencia…"
+                  {...form.register("shippingAddress")}
+                />
+              )}
             </Field>
           )}
 
