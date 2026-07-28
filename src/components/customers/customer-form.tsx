@@ -27,6 +27,7 @@ type CustomerFormProps =
   | {
       mode: "create";
       onSuccess: (customerId: string) => void;
+      defaultWhatsapp?: string;
     }
   | {
       mode: "edit";
@@ -53,7 +54,7 @@ export function CustomerForm(props: CustomerFormProps) {
         : {
             firstName: "",
             lastName: "",
-            whatsapp: "",
+            whatsapp: props.defaultWhatsapp ?? "",
             email: "",
             address: "",
             city: "",

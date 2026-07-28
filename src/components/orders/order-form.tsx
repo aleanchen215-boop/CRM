@@ -72,6 +72,7 @@ export function OrderForm({
   const { data: sucursales } = trpc.sucursales.list.useQuery();
   const { selectedSucursalId } = useSucursalSelection();
   const [newCustomerOpen, setNewCustomerOpen] = useState(false);
+  const [newCustomerPrefill, setNewCustomerPrefill] = useState<string | undefined>(undefined);
 
   // Solo hace falta elegir sucursal si quien crea el pedido no está atado a
   // una sola (el servidor la exige en ese caso) — se precarga con la que
@@ -194,7 +195,10 @@ export function OrderForm({
                       ? "Buscar por nombre o teléfono (opcional)…"
                       : "Buscar por nombre o teléfono…"
                   }
-                  onCreateNew={() => setNewCustomerOpen(true)}
+                  onCreateNew={(prefillWhatsapp) => {
+                    setNewCustomerPrefill(prefillWhatsapp);
+                    setNewCustomerOpen(true);
+                  }}
                   onChange={(customerId) => {
                     field.onChange(customerId);
                     // Precarga la dirección guardada del cliente si el pedido
@@ -339,7 +343,9 @@ export function OrderForm({
             <DialogTitle>Nuevo cliente</DialogTitle>
           </DialogHeader>
           <CustomerForm
+            key={newCustomerPrefill ?? "blank"}
             mode="create"
+            defaultWhatsapp={newCustomerPrefill}
             onSuccess={async (customerId) => {
               await utils.customers.list.invalidate();
               form.setValue("customerId", customerId);
