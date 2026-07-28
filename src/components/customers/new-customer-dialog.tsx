@@ -29,12 +29,12 @@ export function NewCustomerDialog() {
         </DialogHeader>
         <CustomerForm
           mode="create"
-          onSuccess={(customerId) => {
+          onSuccess={(customer) => {
             // No cerramos el diálogo antes de navegar: la navegación ya
             // desmonta todo el árbol, y hacerlo a mano corta la animación
             // de cierre a mitad de camino, dejando el fondo del diálogo
             // "pegado" e invisible, bloqueando los clics en la página nueva.
-            router.push(`/clientes/${customerId}`);
+            router.push(`/clientes/${customer.id}`);
           }}
         />
       </DialogContent>

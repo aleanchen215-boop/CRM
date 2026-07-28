@@ -374,9 +374,16 @@ export function OrderForm({
             key={newCustomerPrefill ?? "blank"}
             mode="create"
             defaultWhatsapp={newCustomerPrefill}
-            onSuccess={async (customerId) => {
+            onSuccess={async (customer) => {
               await utils.customers.list.invalidate();
-              form.setValue("customerId", customerId);
+              form.setValue("customerId", customer.id);
+              // Mismo criterio que al elegir un cliente existente: si cargó
+              // dirección en el alta y el pedido es delivery, se precarga acá
+              // directamente (sin pisar algo que ya se haya tipeado).
+              if (channel === "DELIVERY" && customer.address && !form.getValues("shippingAddress")) {
+                form.setValue("shippingAddress", customer.address);
+                setAddressLocked(true);
+              }
               setNewCustomerOpen(false);
             }}
           />

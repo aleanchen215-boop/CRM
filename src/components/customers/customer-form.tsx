@@ -26,7 +26,7 @@ import {
 type CustomerFormProps =
   | {
       mode: "create";
-      onSuccess: (customerId: string) => void;
+      onSuccess: (customer: { id: string; address: string | null }) => void;
       defaultWhatsapp?: string;
     }
   | {
@@ -69,7 +69,7 @@ export function CustomerForm(props: CustomerFormProps) {
     onSuccess: async (customer) => {
       await utils.customers.list.invalidate();
       toast.success("Cliente creado");
-      if (props.mode === "create") props.onSuccess(customer.id);
+      if (props.mode === "create") props.onSuccess(customer);
     },
     onError: (error) => toast.error(error.message),
   });

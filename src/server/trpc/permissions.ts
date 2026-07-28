@@ -5,7 +5,7 @@ import type { UserRole } from "@/generated/prisma/enums";
 // procedures que la referencien, sin tocar cada router.
 export const PERMISSIONS = {
   "customers:read": ["ADMIN", "VENDEDOR", "ATENCION", "SUPERVISOR", "CAJERO", "VENDEDOR_PARACAO", "VENDEDOR_ALMAFUERTE"],
-  "customers:write": ["ADMIN", "VENDEDOR", "CAJERO"],
+  "customers:write": ["ADMIN", "VENDEDOR", "CAJERO", "VENDEDOR_PARACAO", "VENDEDOR_ALMAFUERTE"],
   "conversations:read": ["ADMIN", "VENDEDOR", "ATENCION", "SUPERVISOR", "CAJERO", "VENDEDOR_PARACAO", "VENDEDOR_ALMAFUERTE"],
   "conversations:write": ["ADMIN", "VENDEDOR", "ATENCION", "CAJERO", "VENDEDOR_PARACAO", "VENDEDOR_ALMAFUERTE"],
   "ai:approve": ["ADMIN", "ATENCION", "SUPERVISOR"],
