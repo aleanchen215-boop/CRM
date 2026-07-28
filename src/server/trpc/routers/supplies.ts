@@ -196,6 +196,44 @@ export const suppliesRouter = router({
       });
     }),
 
+  // Registra que se tiró/rompió/venció algo (SALIDA con motivo fijo
+  // "Desperdicio") — separado de addMovement (stock:write, Admin) para que
+  // el vendedor de cada sucursal pueda hacerlo directo sin poder tocar el
+  // resto de Stock (crear/editar insumos, ajustar cantidades libremente).
+  registerWaste: requirePermission("stock:waste")
+    .input(
+      z.object({
+        supplyId: z.string(),
+        quantity: z.coerce.number().int().positive(),
+        reason: z.string().trim().max(200).optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      return ctx.prisma.$transaction(async (tx) => {
+        const supply = await tx.supply.findUnique({ where: { id: input.supplyId } });
+        if (!supply) throw new TRPCError({ code: "NOT_FOUND" });
+        assertSucursalAccess(ctx.user, supply.sucursalId);
+
+        if (supply.quantity - input.quantity < 0) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "No hay esa cantidad disponible." });
+        }
+
+        await tx.supply.update({
+          where: { id: input.supplyId },
+          data: { quantity: supply.quantity - input.quantity },
+        });
+
+        return tx.supplyMovement.create({
+          data: {
+            supplyId: input.supplyId,
+            type: "SALIDA",
+            quantity: input.quantity,
+            reason: input.reason ? `Desperdicio: ${input.reason}` : "Desperdicio",
+          },
+        });
+      });
+    }),
+
   // Lista de compras rápida ("insumos faltantes"): cualquiera con acceso a
   // Stock puede anotar algo que se está por terminar, y tacharlo cuando ya
   // se compró. No pisa el modelo de Supply — es solo una nota.

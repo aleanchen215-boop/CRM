@@ -45,6 +45,13 @@ export const PERMISSIONS = {
   // sucursal puede avisar que algo se está por terminar, pero no marcarlo
   // como ya llevado/comprado (eso sigue siendo stock:add/stock:write).
   "stock:reportMissing": ["ADMIN", "VENDEDOR_PARACAO", "VENDEDOR_ALMAFUERTE"],
+  // Registrar que algo se tiró/rompió (se venció, se cayó, salió mal y no
+  // se pudo vender) — descuenta stock igual que una venta, pero separado
+  // para no tener que disfrazarlo de venta o consumo interno solo para que
+  // el conteo de stock quede bien. Mismo alcance que reportMissing: Admin y
+  // el vendedor de cada sucursal, nunca Cajero ni el resto de los roles de
+  // Stock (Depósito/Productor/Repartidor no venden, no tiran producto).
+  "stock:waste": ["ADMIN", "VENDEDOR_PARACAO", "VENDEDOR_ALMAFUERTE"],
   "automations:write": ["ADMIN"],
   "reports:read": ["ADMIN", "VENDEDOR", "SUPERVISOR"],
   "users:manage": ["ADMIN"],

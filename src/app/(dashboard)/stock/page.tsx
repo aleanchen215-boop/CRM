@@ -8,15 +8,20 @@ import { NewSupplyDialog } from "@/components/supplies/new-supply-dialog";
 import { MissingSupplies } from "@/components/supplies/missing-supplies";
 import { SupplyTable } from "@/components/supplies/supply-table";
 import { CombinedSupplyTable } from "@/components/supplies/combined-supply-table";
+import { WasteSupplies } from "@/components/supplies/waste-supplies";
 import { useSucursalSelection } from "@/components/layout/sucursal-context";
 import { useCanPerform } from "@/lib/use-can-perform";
 
 export default function StockPage() {
   const [search, setSearch] = useState("");
   const canWrite = useCanPerform("stock:write");
+  const canWaste = useCanPerform("stock:waste");
   const { data: me } = trpc.system.me.useQuery();
   const { data: sucursales } = trpc.sucursales.list.useQuery();
   const { selectedSucursalId } = useSucursalSelection();
+  // Vendedor de sucursal siempre tiene la suya fija (no elige del selector
+  // de arriba); Admin necesita elegir una puntual para poder registrar acá.
+  const wasteSucursalId = me?.sucursalId ?? selectedSucursalId;
 
   // Depósito y Repartidor ven las dos sucursales siempre separadas en
   // secciones apiladas (una abajo de la otra, nunca una al lado de la
@@ -63,6 +68,7 @@ export default function StockPage() {
           ) : (
             <CombinedSupplyTable search={search} />
           )}
+          {canWaste && wasteSucursalId && <WasteSupplies sucursalId={wasteSucursalId} />}
         </>
       )}
     </div>
