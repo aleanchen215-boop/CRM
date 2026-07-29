@@ -2,7 +2,7 @@
   "crons": [
     {
       "path": "/api/cron/close-stale-conversations",
-      "schedule": "*/30 * * * *"
+      "schedule": "0 6 * * *"
     }
   ]
 }
