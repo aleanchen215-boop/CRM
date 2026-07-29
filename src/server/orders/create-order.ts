@@ -2,6 +2,7 @@ import { TRPCError } from "@trpc/server";
 import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import type { OrderInput } from "@/lib/validation/order";
+import { type PromoDef, type PromoPoolEntry, optimizePromoUsage } from "@/server/orders/promo-optimizer";
 
 type OrderItemInput = OrderInput["items"][number];
 
@@ -9,6 +10,18 @@ type OrderItemInput = OrderInput["items"][number];
 // Vive acá (no en create-order-tool.ts) porque tanto la creación como el
 // cambio de canal de un pedido existente lo necesitan.
 export const DELIVERY_FEE = 3500;
+
+export type DiscountInput = { type: "PORCENTAJE" | "MONTO_FIJO"; value: number } | null;
+
+// Descuento manual cargado desde Ventas (nunca lo aplica la IA) — nunca deja
+// el total por debajo de 0 ni el descuento por encima del subtotal, aunque
+// el valor cargado sea más grande (ej. 100% o un monto fijo mayor al
+// pedido).
+function computeDiscountAmount(base: number, discount: DiscountInput): number {
+  if (!discount || base <= 0) return 0;
+  const amount = discount.type === "PORCENTAJE" ? (base * discount.value) / 100 : discount.value;
+  return Math.min(Math.max(amount, 0), base);
+}
 
 // Un pedido se puede seguir tocando (agregar cosas, cambiar pago/canal)
 // mientras siga PENDIENTE o ya CONFIRMADO — recién deja de poder tocarse
@@ -28,10 +41,15 @@ function isModifiable(status: string): boolean {
 // el de los productos que la arman).
 type SupplyDeduction = { productId: string; quantity: number };
 
-async function resolveOrderItem(
+export async function resolveOrderItem(
   tx: Prisma.TransactionClient,
   item: OrderItemInput,
-): Promise<{ data: Prisma.OrderItemCreateManyOrderInput; price: number; deductions: SupplyDeduction[] }> {
+): Promise<{
+  data: Prisma.OrderItemCreateManyOrderInput;
+  price: number;
+  deductions: SupplyDeduction[];
+  label: string;
+}> {
   if (item.kind === "PRODUCTO") {
     const product = await tx.product.findUnique({ where: { id: item.productId } });
     if (!product) {
@@ -41,6 +59,7 @@ async function resolveOrderItem(
       data: { productId: product.id, quantity: item.quantity, unitPrice: product.price },
       price: Number(product.price) * item.quantity,
       deductions: [{ productId: product.id, quantity: item.quantity }],
+      label: `${item.quantity}x ${product.name}`,
     };
   }
 
@@ -84,6 +103,7 @@ async function resolveOrderItem(
       // usa la receta del primer producto, que es la misma para cualquier
       // pizza (1 Prepizza + 1 Bolsas de Muzzarella).
       deductions: [{ productId: product1.id, quantity: item.quantity }],
+      label: product2 ? `Media ${product1.name} / media ${product2.name}` : `Media ${product1.name}`,
     };
   }
 
@@ -161,6 +181,7 @@ async function resolveOrderItem(
       selections: selections as Prisma.InputJsonValue,
     },
     price: Number(promotion.price),
+    label: promotion.name,
   };
 }
 
@@ -267,6 +288,10 @@ export async function createOrder(input: CreateOrderInput) {
     const deliveryFee = input.channel === "DELIVERY" ? (input.deliveryFee ?? DELIVERY_FEE) : undefined;
     total += deliveryFee ?? 0;
 
+    const discount: DiscountInput =
+      input.discountType && input.discountValue ? { type: input.discountType, value: input.discountValue } : null;
+    total -= computeDiscountAmount(total, discount);
+
     const order = await tx.order.create({
       data: {
         customerId: input.customerId,
@@ -276,6 +301,8 @@ export async function createOrder(input: CreateOrderInput) {
         channelSource: input.channel === "APPS" ? input.channelSource : undefined,
         status: "PENDIENTE",
         total,
+        discountType: discount?.type,
+        discountValue: discount?.value,
         changeFor: input.changeFor,
         shippingAddress: input.channel === "DELIVERY" ? input.shippingAddress : undefined,
         deliveryFee,
@@ -291,6 +318,104 @@ export async function createOrder(input: CreateOrderInput) {
 
     return order;
   });
+}
+
+// Calcula el total de una lista de renglones SIN crear el pedido ni tocar
+// stock — para que la IA pueda cotizar un pedido completo (varios productos
+// + envío) antes de que el cliente confirme, sin tener que sumar los
+// subtotales de memoria (ahí es donde se equivoca: ver bug de Pocho
+// Soluciones, sumó $14.400 + $3.500 y dio $18.900 en vez de $17.900).
+//
+// Los renglones sueltos (kind PRODUCTO) se pasan por el mismo optimizador de
+// promos que usa reconcilePromotions, así la cotización previa a confirmar
+// ya refleja la promo más barata posible (ej. 1 muzzarella + 6 empanadas
+// sueltas cotiza la promo "Muzzarella + 3 Empanadas" + 3 empanadas sueltas
+// aparte, no las 7 unidades a precio de lista) — sin esto la IA podía decir
+// "no hay ninguna promo para esto" cuando en los hechos sí armaba una.
+export async function quoteOrderItems(
+  items: OrderItemInput[],
+  deliveryFee?: number,
+): Promise<{ lines: { label: string; price: number }[]; total: number }> {
+  const lines: { label: string; price: number }[] = [];
+  let total = 0;
+
+  const productoItems = items.filter(
+    (item): item is Extract<OrderItemInput, { kind: "PRODUCTO" }> => item.kind === "PRODUCTO",
+  );
+  const otherItems = items.filter((item) => item.kind !== "PRODUCTO");
+
+  for (const item of otherItems) {
+    const resolved = await resolveOrderItem(prisma, item);
+    total += resolved.price;
+    lines.push({ label: resolved.label, price: resolved.price });
+  }
+
+  if (productoItems.length > 0) {
+    const productIds = [...new Set(productoItems.map((item) => item.productId))];
+    const products = await prisma.product.findMany({ where: { id: { in: productIds } } });
+
+    const pool = new Map<string, PromoPoolEntry>();
+    const quantities = new Map<string, number>();
+    for (const item of productoItems) {
+      const product = products.find((p) => p.id === item.productId);
+      if (!product) continue;
+      if (!pool.has(product.id)) {
+        pool.set(product.id, {
+          categoryId: product.categoryId,
+          name: product.name,
+          price: Number(product.price),
+        });
+      }
+      quantities.set(product.id, (quantities.get(product.id) ?? 0) + item.quantity);
+    }
+
+    const activePromotions = await prisma.promotion.findMany({ where: { active: true }, include: { items: true } });
+    const promoDefs: PromoDef[] = activePromotions.map((promotion) => ({
+      id: promotion.id,
+      price: Number(promotion.price),
+      items: promotion.items.map((i) => ({
+        kind: i.kind,
+        productId: i.productId,
+        categoryId: i.categoryId,
+        quantity: i.quantity,
+      })),
+    }));
+
+    const { uses } = optimizePromoUsage(quantities, pool, promoDefs);
+
+    const consumed = new Map<string, number>();
+    for (const use of uses) {
+      const promo = activePromotions.find((p) => p.id === use.promotionId);
+      total += use.price;
+      lines.push({ label: promo?.name ?? "Promoción", price: use.price });
+      for (const selection of use.selections as Array<Record<string, unknown>>) {
+        if (selection.type === "FIJO") {
+          const productId = selection.productId as string;
+          consumed.set(productId, (consumed.get(productId) ?? 0) + (selection.cantidad as number));
+        } else if (selection.type === "VARIABLE") {
+          for (const producto of selection.productos as Array<{ productId: string }>) {
+            consumed.set(producto.productId, (consumed.get(producto.productId) ?? 0) + 1);
+          }
+        }
+      }
+    }
+
+    for (const [productId, qty] of quantities) {
+      const remaining = qty - (consumed.get(productId) ?? 0);
+      if (remaining <= 0) continue;
+      const entry = pool.get(productId)!;
+      const price = entry.price * remaining;
+      total += price;
+      lines.push({ label: `${remaining}x ${entry.name}`, price });
+    }
+  }
+
+  if (deliveryFee) {
+    total += deliveryFee;
+    lines.push({ label: "Envío", price: deliveryFee });
+  }
+
+  return { lines, total };
 }
 
 // Permite sumar productos/promos a un pedido que el cliente ya hizo, mientras
@@ -497,6 +622,32 @@ export async function updatePendingOrderPayment(
   });
 }
 
+// Aplica (o cambia, o saca con discount: null) un descuento manual sobre un
+// pedido PENDIENTE o CONFIRMADO desde Ventas — recalcula el total de cero a
+// partir de los renglones actuales + envío, así queda bien sin importar qué
+// se haya agregado/sacado antes de aplicar el descuento. Devuelve null si el
+// pedido ya no se puede tocar.
+export async function applyDiscount(orderId: string, discount: DiscountInput) {
+  return prisma.$transaction(async (tx) => {
+    const order = await tx.order.findUnique({ where: { id: orderId } });
+    if (!order || !isModifiable(order.status)) return null;
+
+    const items = await tx.orderItem.findMany({ where: { orderId } });
+    const itemsTotal = items.reduce((sum, item) => sum + Number(item.unitPrice) * item.quantity, 0);
+    const base = itemsTotal + Number(order.deliveryFee ?? 0);
+    const total = base - computeDiscountAmount(base, discount);
+
+    return tx.order.update({
+      where: { id: orderId },
+      data: {
+        discountType: discount ? discount.type : null,
+        discountValue: discount ? discount.value : null,
+        total,
+      },
+    });
+  });
+}
+
 // Cambia MOSTRADOR<->DELIVERY (o solo la dirección) de un pedido PENDIENTE —
 // ej. el cliente pidió retirar y después decide que se lo enviemos. Ajusta
 // el total sumando o restando el costo fijo de envío según corresponda.
@@ -562,6 +713,44 @@ export async function cancelPendingOrder(orderId: string) {
   return prisma.order.update({ where: { id: orderId }, data: { status: "CANCELADO" } });
 }
 
+// Cambia entre pago simple (un solo método, el de `method`) y múltiple
+// (se reparte entre varios medios — ver recordSplitPayment). Solo cambia el
+// modo, no toca el total ni crea pagos.
+export async function setPaymentMode(orderId: string, paymentMode: "SIMPLE" | "MULTIPLE") {
+  const order = await prisma.order.findUnique({ where: { id: orderId } });
+  if (!order || order.status === "CANCELADO" || order.status === "ENTREGADO") return null;
+
+  return prisma.order.update({ where: { id: orderId }, data: { paymentMode } });
+}
+
+// Registra cómo se repartió el cobro entre varios medios de pago (ej.
+// $20.000 en efectivo + $5.000 en Payway) y marca el pedido como ENTREGADO
+// en el mismo paso — se usa cuando el pedido está en modo de pago MÚLTIPLE
+// y se confirma la entrega. Devuelve null si el pedido ya no se puede tocar
+// o si los montos cargados no suman exacto el total.
+export async function recordSplitPayment(
+  orderId: string,
+  payments: { method: OrderInput["method"]; amount: number }[],
+) {
+  return prisma.$transaction(async (tx) => {
+    const order = await tx.order.findUnique({ where: { id: orderId } });
+    if (!order || order.status === "CANCELADO" || order.status === "ENTREGADO") return null;
+
+    const loaded = payments.reduce((sum, p) => sum + p.amount, 0);
+    // Los montos son pesos enteros en la práctica — redondeo defensivo por
+    // si algún input trae decimales de punto flotante (0.1 + 0.2 !== 0.3).
+    if (Math.round(loaded) !== Math.round(Number(order.total))) return "MISMATCH" as const;
+
+    await tx.payment.createMany({
+      data: payments
+        .filter((p) => p.amount > 0)
+        .map((p) => ({ orderId, method: p.method, amount: p.amount, status: "APROBADO" as const })),
+    });
+
+    return tx.order.update({ where: { id: orderId }, data: { status: "ENTREGADO" } });
+  });
+}
+
 // El cliente avisa por WhatsApp que ya no quiere el pedido — NO se cancela
 // solo: queda visible con un cartel grande hasta que un cajero/vendedor lo
 // confirme a mano (cancelPendingOrder). Devuelve null si ya no se puede
@@ -609,8 +798,7 @@ export async function reconcilePromotions(orderId: string) {
     });
     if (promotions.length === 0) return order;
 
-    type PoolEntry = { categoryId: string | null; name: string; price: number };
-    const pool = new Map<string, PoolEntry>();
+    const pool = new Map<string, PromoPoolEntry>();
     const initialQuantities = new Map<string, number>();
     for (const item of looseItems) {
       if (!item.productId) continue;
@@ -624,105 +812,18 @@ export async function reconcilePromotions(orderId: string) {
       initialQuantities.set(item.productId, (initialQuantities.get(item.productId) ?? 0) + item.quantity);
     }
 
-    type PromoUse = { promotionId: string; price: number; selections: Record<string, unknown>[] };
+    const promoDefs: PromoDef[] = promotions.map((promotion) => ({
+      id: promotion.id,
+      price: Number(promotion.price),
+      items: promotion.items.map((i) => ({
+        kind: i.kind,
+        productId: i.productId,
+        categoryId: i.categoryId,
+        quantity: i.quantity,
+      })),
+    }));
 
-    // Precio de dejar este estado tal cual, sin armar ninguna promo más
-    // (cada unidad restante se cobra a precio de lista).
-    function stateCost(state: Map<string, number>): number {
-      let cost = 0;
-      for (const [productId, qty] of state) cost += qty * (pool.get(productId)?.price ?? 0);
-      return cost;
-    }
-
-    function stateKey(state: Map<string, number>): string {
-      return [...state.entries()]
-        .filter(([, qty]) => qty > 0)
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([id, qty]) => `${id}:${qty}`)
-        .join(",");
-    }
-
-    // Busca, entre todas las formas posibles de combinar las promos activas
-    // sobre lo que sobró suelto, la que deja el costo TOTAL más bajo (promos
-    // elegidas + lo que queda suelto a precio de lista) — no se queda con la
-    // primera promo que matchea. Ej.: con 3 muzzarellas sueltas, en vez de
-    // aplicar "2 Muzzarellas" y dejar 1 suelta, también prueba "3
-    // Muzzarellas" completa y elige la que sale más barata en total.
-    // Memoiza por estado (qué queda de cada producto) porque distintos
-    // caminos de promos pueden llegar al mismo estado intermedio.
-    const memo = new Map<string, { cost: number; uses: PromoUse[] }>();
-
-    function solve(state: Map<string, number>): { cost: number; uses: PromoUse[] } {
-      const key = stateKey(state);
-      const cached = memo.get(key);
-      if (cached) return cached;
-
-      let best: { cost: number; uses: PromoUse[] } = { cost: stateCost(state), uses: [] };
-
-      for (const promotion of promotions) {
-        const fijoParts = promotion.items.filter((i) => i.kind === "FIJO");
-        const variableParts = promotion.items.filter((i) => i.kind === "VARIABLE");
-
-        const fijoOk = fijoParts.every(
-          (part) => part.productId && (state.get(part.productId) ?? 0) >= part.quantity,
-        );
-        const categoryAvailable = (categoryId: string | null) =>
-          [...state.entries()]
-            .filter(([productId]) => pool.get(productId)?.categoryId === categoryId)
-            .reduce((sum, [, qty]) => sum + qty, 0);
-        const variableOk = variableParts.every((part) => categoryAvailable(part.categoryId) >= part.quantity);
-        if (!fijoOk || !variableOk) continue;
-
-        const nextState = new Map(state);
-        const selections: Record<string, unknown>[] = [];
-
-        for (const part of fijoParts) {
-          if (!part.productId) continue;
-          nextState.set(part.productId, (nextState.get(part.productId) ?? 0) - part.quantity);
-          selections.push({
-            type: "FIJO",
-            productId: part.productId,
-            nombre: pool.get(part.productId)?.name ?? "",
-            cantidad: part.quantity,
-          });
-        }
-
-        for (const part of variableParts) {
-          let remaining = part.quantity;
-          // Prioriza consumir para la promo los productos más caros de la
-          // categoría — así lo que queda suelto (a precio de lista) es lo
-          // más barato posible, en vez de al revés.
-          const candidates = [...nextState.entries()]
-            .filter(([productId]) => pool.get(productId)?.categoryId === part.categoryId)
-            .sort(([a], [b]) => (pool.get(b)?.price ?? 0) - (pool.get(a)?.price ?? 0));
-
-          const chosen: { productId: string; nombre: string }[] = [];
-          for (const [productId, availableQty] of candidates) {
-            if (remaining <= 0) break;
-            const take = Math.min(availableQty, remaining);
-            if (take <= 0) continue;
-            nextState.set(productId, availableQty - take);
-            for (let i = 0; i < take; i++) chosen.push({ productId, nombre: pool.get(productId)?.name ?? "" });
-            remaining -= take;
-          }
-          selections.push({ type: "VARIABLE", categoria: "", productos: chosen });
-        }
-
-        const rest = solve(nextState);
-        const cost = Number(promotion.price) + rest.cost;
-        if (cost < best.cost) {
-          best = {
-            cost,
-            uses: [{ promotionId: promotion.id, price: Number(promotion.price), selections }, ...rest.uses],
-          };
-        }
-      }
-
-      memo.set(key, best);
-      return best;
-    }
-
-    const { uses: formed } = solve(initialQuantities);
+    const { uses: formed } = optimizePromoUsage(initialQuantities, pool, promoDefs);
     if (formed.length === 0) return order;
 
     const consumed = new Map<string, number>();

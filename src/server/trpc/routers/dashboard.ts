@@ -95,8 +95,14 @@ export const dashboardRouter = router({
     const entregadosHoy = entregados.filter((order) => isToday(order.createdAt, today));
     const entregadosMes = entregados.filter((order) => isThisMonth(order.createdAt, thisMonth));
 
+    // Cuenta corriente es un consumo interno que se anota para cobrar/
+    // descontar después (ver comentario del enum PaymentMethod) — descuenta
+    // stock como cualquier venta, pero no es plata que haya entrado de
+    // verdad, así que no debe sumar a la facturación.
     const sum = (orders: typeof entregados) =>
-      orders.reduce((acc, order) => acc + Number(order.total), 0);
+      orders
+        .filter((order) => order.method !== "CUENTA_CORRIENTE")
+        .reduce((acc, order) => acc + Number(order.total), 0);
 
     const productosVendidosHoy = new Map<string, number>();
     const formasDePagoHoy = new Map<string, { count: number; total: number }>();

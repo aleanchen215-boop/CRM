@@ -93,6 +93,9 @@ export function OrderForm({
     defaultValues: {
       customerId: "",
       method: allowedMethods[0],
+      changeFor: "",
+      discountType: "PORCENTAJE",
+      discountValue: "",
       items: [emptyRow()],
       notes: "",
       shippingAddress: "",
@@ -104,6 +107,10 @@ export function OrderForm({
   const watchedItems = useWatch({ control: form.control, name: "items" });
   const watchedSucursalId = useWatch({ control: form.control, name: "sucursalId" });
   const watchedShippingAddress = useWatch({ control: form.control, name: "shippingAddress" });
+  const watchedMethod = useWatch({ control: form.control, name: "method" });
+  const watchedChangeFor = useWatch({ control: form.control, name: "changeFor" });
+  const watchedDiscountType = useWatch({ control: form.control, name: "discountType" });
+  const watchedDiscountValue = useWatch({ control: form.control, name: "discountValue" });
   // Para saber qué stock mirar en el picker de productos: la sucursal que se
   // haya elegido en el form (si hace falta elegirla) o si no, la que ya está
   // seleccionada arriba en el layout.
@@ -125,7 +132,16 @@ export function OrderForm({
   }, 0);
   // Mismo valor fijo que DELIVERY_FEE en el servidor — se suma solo acá
   // para que la vista previa del total coincida con lo que se va a cobrar.
-  const total = channel === "DELIVERY" ? itemsTotal + 3500 : itemsTotal;
+  const subtotal = channel === "DELIVERY" ? itemsTotal + 3500 : itemsTotal;
+  const discountValueNum = Number(watchedDiscountValue);
+  const discountAmount =
+    watchedDiscountValue && discountValueNum > 0
+      ? Math.min(
+          watchedDiscountType === "PORCENTAJE" ? (subtotal * discountValueNum) / 100 : discountValueNum,
+          subtotal,
+        )
+      : 0;
+  const total = subtotal - discountAmount;
 
   const create = trpc.orders.create.useMutation({
     onSuccess: async (order) => {
@@ -157,9 +173,17 @@ export function OrderForm({
       toast.error("Completá la dirección de entrega.");
       return;
     }
+    const changeFor =
+      channel === "DELIVERY" && values.method === "EFECTIVO" && values.changeFor.trim()
+        ? Number(values.changeFor)
+        : undefined;
+    const discountValue = values.discountValue.trim() ? Number(values.discountValue) : undefined;
     create.mutate({
       customerId: values.customerId || undefined,
       method: values.method,
+      changeFor,
+      discountType: discountValue ? values.discountType : undefined,
+      discountValue,
       channel,
       channelSource,
       items: toApiItems(values.items),
@@ -312,6 +336,31 @@ export function OrderForm({
             )}
           </Field>
 
+          {channel === "DELIVERY" && watchedMethod === "EFECTIVO" && (
+            <Field>
+              <FieldLabel htmlFor="changeFor">Paga con (opcional)</FieldLabel>
+              <div className="flex items-center gap-2">
+                <Input
+                  id="changeFor"
+                  type="number"
+                  inputMode="decimal"
+                  placeholder="Paga justo"
+                  className="max-w-40"
+                  {...form.register("changeFor")}
+                />
+                {(() => {
+                  const paidWith = Number(watchedChangeFor);
+                  if (!watchedChangeFor || !(paidWith > total)) return null;
+                  return (
+                    <span className="text-sm text-muted-foreground">
+                      Vuelto: <span className="font-medium text-foreground">{formatCurrency(paidWith - total)}</span>
+                    </span>
+                  );
+                })()}
+              </div>
+            </Field>
+          )}
+
           <Field>
             <FieldLabel>Productos</FieldLabel>
             <div className="flex flex-col gap-2">
@@ -354,9 +403,59 @@ export function OrderForm({
             />
           </Field>
 
-          <div className="flex items-center justify-between rounded-lg border bg-muted/40 px-3 py-2 text-sm">
-            <span className="text-muted-foreground">Total</span>
-            <span className="font-medium">{formatCurrency(total)}</span>
+          <Field>
+            <FieldLabel htmlFor="discountValue">Descuento (opcional)</FieldLabel>
+            <div className="flex items-center gap-2">
+              <Controller
+                control={form.control}
+                name="discountType"
+                render={({ field }) => (
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <SelectTrigger id="discountType" className="w-32">
+                      <SelectValue>
+                        {(value: "PORCENTAJE" | "MONTO_FIJO") => (value === "PORCENTAJE" ? "%" : "$")}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="PORCENTAJE">%</SelectItem>
+                      <SelectItem value="MONTO_FIJO">$ fijo</SelectItem>
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+              <Input
+                id="discountValue"
+                type="number"
+                inputMode="decimal"
+                placeholder="0"
+                className="max-w-32"
+                {...form.register("discountValue")}
+              />
+              {discountAmount > 0 && (
+                <span className="text-sm text-muted-foreground">
+                  −{formatCurrency(discountAmount)}
+                </span>
+              )}
+            </div>
+          </Field>
+
+          <div className="flex flex-col gap-1 rounded-lg border bg-muted/40 px-3 py-2 text-sm">
+            {discountAmount > 0 && (
+              <>
+                <div className="flex items-center justify-between text-muted-foreground">
+                  <span>Subtotal</span>
+                  <span>{formatCurrency(subtotal)}</span>
+                </div>
+                <div className="flex items-center justify-between text-muted-foreground">
+                  <span>Descuento</span>
+                  <span>−{formatCurrency(discountAmount)}</span>
+                </div>
+              </>
+            )}
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Total</span>
+              <span className="font-medium">{formatCurrency(total)}</span>
+            </div>
           </div>
         </FieldGroup>
 

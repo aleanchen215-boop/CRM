@@ -22,6 +22,20 @@ export const conversationsRouter = router({
       });
     }),
 
+  // Cuántas conversaciones quedaron en PENDIENTE (la IA se apagó porque
+  // necesita que alguien del local la atienda a mano — reclamo, demora, o un
+  // caso puntual como Johana/picada en Almafuerte) — se usa para el aviso
+  // "!" en la barra de navegación, así se ve aunque no se esté parado en
+  // Conversaciones.
+  pendingCount: requirePermission("conversations:read")
+    .input(z.object({ sucursalId: z.string().optional() }).optional())
+    .query(async ({ ctx, input }) => {
+      const sucursalId = resolveSucursalFilter(ctx.user, input?.sucursalId);
+      return ctx.prisma.conversation.count({
+        where: { status: "PENDIENTE", ...(sucursalId ? { sucursalId } : {}) },
+      });
+    }),
+
   getById: requirePermission("conversations:read")
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {

@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { toast } from "sonner";
 import { orderStatusValues } from "@/lib/validation/order";
 import { trpc } from "@/lib/trpc/client";
@@ -10,6 +11,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { SplitPaymentDialog } from "@/components/orders/split-payment-dialog";
 
 const STATUS_LABELS: Record<(typeof orderStatusValues)[number], string> = {
   PENDIENTE: "Pendiente",
@@ -22,11 +24,20 @@ const STATUS_LABELS: Record<(typeof orderStatusValues)[number], string> = {
 export function OrderStatusSelect({
   orderId,
   status,
+  paymentMode,
+  total,
+  channel,
+  channelSource,
 }: {
   orderId: string;
   status: (typeof orderStatusValues)[number];
+  paymentMode: "SIMPLE" | "MULTIPLE";
+  total: number;
+  channel: "MOSTRADOR" | "DELIVERY" | "APPS";
+  channelSource?: string | null;
 }) {
   const utils = trpc.useUtils();
+  const [splitOpen, setSplitOpen] = useState(false);
 
   const updateStatus = trpc.orders.updateStatus.useMutation({
     onSuccess: async () => {
@@ -40,30 +51,48 @@ export function OrderStatusSelect({
   });
 
   return (
-    <Select
-      value={status}
-      onValueChange={(value) =>
-        updateStatus.mutate({ id: orderId, status: value as (typeof orderStatusValues)[number] })
-      }
-    >
-      <SelectTrigger className="w-44">
-        <SelectValue>
-          {(value: (typeof orderStatusValues)[number]) => STATUS_LABELS[value]}
-        </SelectValue>
-      </SelectTrigger>
-      <SelectContent>
-        {orderStatusValues
-          // CANCELADO no se elige acá — solo a través del botón dedicado
-          // Cancelar venta (permiso más estricto, no cualquiera con
-          // orders:write). Si el pedido ya está cancelado, igual se puede
-          // mostrar como valor actual sin ofrecerlo para elegir de nuevo.
-          .filter((value) => value !== "CANCELADO")
-          .map((value) => (
-            <SelectItem key={value} value={value}>
-              {STATUS_LABELS[value]}
-            </SelectItem>
-          ))}
-      </SelectContent>
-    </Select>
+    <>
+      <Select
+        value={status}
+        onValueChange={(value) => {
+          // Pago múltiple no se confirma con este selector: hay que repartir
+          // el pago entre los medios primero (ver recordSplitPayment), que
+          // deja el pedido en ENTREGADO como parte de esa misma acción.
+          if (value === "ENTREGADO" && paymentMode === "MULTIPLE") {
+            setSplitOpen(true);
+            return;
+          }
+          updateStatus.mutate({ id: orderId, status: value as (typeof orderStatusValues)[number] });
+        }}
+      >
+        <SelectTrigger className="w-44">
+          <SelectValue>
+            {(value: (typeof orderStatusValues)[number]) => STATUS_LABELS[value]}
+          </SelectValue>
+        </SelectTrigger>
+        <SelectContent>
+          {orderStatusValues
+            // CANCELADO no se elige acá — solo a través del botón dedicado
+            // Cancelar venta (permiso más estricto, no cualquiera con
+            // orders:write). Si el pedido ya está cancelado, igual se puede
+            // mostrar como valor actual sin ofrecerlo para elegir de nuevo.
+            .filter((value) => value !== "CANCELADO")
+            .map((value) => (
+              <SelectItem key={value} value={value}>
+                {STATUS_LABELS[value]}
+              </SelectItem>
+            ))}
+        </SelectContent>
+      </Select>
+
+      <SplitPaymentDialog
+        open={splitOpen}
+        onOpenChange={setSplitOpen}
+        orderId={orderId}
+        total={total}
+        channel={channel}
+        channelSource={channelSource}
+      />
+    </>
   );
 }

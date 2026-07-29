@@ -464,6 +464,19 @@ enum SalesChannel {
   APPS
 }
 
+enum DiscountType {
+  PORCENTAJE
+  MONTO_FIJO
+}
+
+// SIMPLE: se cobra entero con el método elegido en `method`. MULTIPLE: se
+// reparte entre varios medios de pago (ver Payment) — se completa recién al
+// marcar el pedido como ENTREGADO, ahí se piden los montos de cada medio.
+enum PaymentMode {
+  SIMPLE
+  MULTIPLE
+}
+
 model Order {
   id              String        @id @default(uuid())
   customerId      String
@@ -472,6 +485,10 @@ model Order {
   sucursal        Sucursal      @relation(fields: [sucursalId], references: [id])
   status          OrderStatus   @default(PENDIENTE)
   method          PaymentMethod
+  // MULTIPLE recién queda "confirmado" cuando se cargan los renglones de
+  // Payment que suman el total, al marcar el pedido ENTREGADO — hasta ese
+  // momento `method` sigue siendo el que se haya elegido como principal.
+  paymentMode     PaymentMode   @default(SIMPLE)
   channel         SalesChannel  @default(MOSTRADOR)
   // Solo se usa cuando channel = APPS: distingue de qué plataforma vino
   // (ej. "PEDIDOSYA", "RAPPI") una vez que esas integraciones existan.
@@ -485,7 +502,15 @@ model Order {
   externalOrderId String?
   employeeId      String?
   employee        User?         @relation(fields: [employeeId], references: [id])
+  // Total FINAL a cobrar, ya con el descuento aplicado si tiene uno (ver
+  // discountType/discountValue) — no un subtotal antes de descuento.
   total           Decimal       @db.Decimal(12, 2)
+  // Descuento manual cargado desde Ventas (crear o editar venta), como % o
+  // como monto fijo — nunca lo aplica la IA por WhatsApp. Null = sin
+  // descuento. Se reaplica sobre el subtotal cada vez que cambian los
+  // renglones o el envío, para que total siempre quede consistente.
+  discountType    DiscountType?
+  discountValue   Decimal?      @db.Decimal(12, 2)
   // Solo si method = EFECTIVO y el cliente avisó que paga con un billete
   // más grande: cuánto necesita de vuelto el cadete/mostrador.
   changeFor       Decimal?      @db.Decimal(12, 2)

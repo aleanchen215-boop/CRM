@@ -5,6 +5,7 @@ import {
   addItemsToOrder,
   createOrder,
   flagCancellationRequest,
+  quoteOrderItems,
   reconcilePromotions,
   removeItemsFromOrder,
   updatePendingOrderChannel,
@@ -485,6 +486,59 @@ export async function handleCreateOrder(
   }
 
   return `Pedido creado (total $${total.toLocaleString("es-AR")}${deliveryNote}),${scheduleNote} paga en efectivo sin vuelto.`;
+}
+
+export const QUOTE_ORDER_TOOL: ChatCompletionTool = {
+  type: "function",
+  function: {
+    name: "cotizar_pedido",
+    description:
+      "Calcula el total de VARIOS productos/promociones juntos (y el envío si corresponde), antes de que el cliente confirme el pedido. Llamala SIEMPRE que el cliente pregunte cuánto sale el total de más de un producto, o el total con envío incluido — NUNCA sumes los subtotales vos de memoria, ahí es donde te equivocás. Para un solo producto sin envío, mejor usá buscar_productos. No crea ningún pedido, solo informa el total.",
+    parameters: {
+      type: "object",
+      properties: {
+        canal: {
+          type: "string",
+          enum: ["MOSTRADOR", "DELIVERY"],
+          description: "DELIVERY si hay que sumar el envío ($3.500), MOSTRADOR si no.",
+        },
+        items: {
+          type: "array",
+          description: "Mismo formato que en crear_pedido: un elemento por cada producto o promoción a cotizar.",
+          items: {
+            type: "object",
+            properties: {
+              nombre: { type: "string", description: "Nombre exacto del producto o promoción." },
+              cantidad: { type: "number", description: "Cantidad de unidades. Omitir para promociones." },
+              sabores: {
+                type: "array",
+                items: { type: "string" },
+                description: "Solo si nombre es una promoción con partes a elección, igual que en crear_pedido.",
+              },
+            },
+            required: ["nombre"],
+          },
+        },
+      },
+      required: ["canal", "items"],
+    },
+  },
+};
+
+interface QuoteOrderArgs {
+  canal: "MOSTRADOR" | "DELIVERY";
+  items: ItemArg[];
+}
+
+export async function handleQuoteOrder(sucursalId: string, args: QuoteOrderArgs): Promise<string> {
+  const resolved = await resolveItemsForOrder(args.items, sucursalId);
+  if ("error" in resolved) return resolved.error;
+
+  const deliveryFee = args.canal === "DELIVERY" ? DELIVERY_FEE : undefined;
+  const { lines, total } = await quoteOrderItems(resolved.orderItems, deliveryFee);
+
+  const breakdown = lines.map((line) => `${line.label}: $${line.price.toLocaleString("es-AR")}`).join("\n");
+  return `${breakdown}\nTotal: $${total.toLocaleString("es-AR")}`;
 }
 
 export const MODIFY_ORDER_TOOL: ChatCompletionTool = {

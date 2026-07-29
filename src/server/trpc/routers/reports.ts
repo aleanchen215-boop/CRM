@@ -54,13 +54,19 @@ export const reportsRouter = router({
         orderBy: { createdAt: "asc" },
       });
 
-      const total = orders.reduce((acc, o) => acc + Number(o.total), 0);
+      // Cuenta corriente es un consumo interno que se anota para cobrar/
+      // descontar después, no plata que haya entrado de verdad — no cuenta
+      // como facturación (total, por día, por canal). Sí se sigue viendo su
+      // propio renglón en byMethod, para tener a la vista cuánto quedó
+      // anotado sin mezclarlo con la facturación real.
+      const facturableOrders = orders.filter((o) => o.method !== "CUENTA_CORRIENTE");
+      const total = facturableOrders.reduce((acc, o) => acc + Number(o.total), 0);
 
       const byDayMap = new Map<string, { total: number; count: number }>();
       const byChannelMap = new Map<string, { total: number; count: number }>();
       const byMethodMap = new Map<string, { total: number; count: number }>();
 
-      for (const order of orders) {
+      for (const order of facturableOrders) {
         const day = dayFormatter.format(order.createdAt);
         const amount = Number(order.total);
 
@@ -74,17 +80,19 @@ export const reportsRouter = router({
         channelEntry.total += amount;
         channelEntry.count += 1;
         byChannelMap.set(channelLabel, channelEntry);
+      }
 
+      for (const order of orders) {
         const methodLabel = PAYMENT_METHOD_LABELS[order.method] ?? order.method;
         const methodEntry = byMethodMap.get(methodLabel) ?? { total: 0, count: 0 };
-        methodEntry.total += amount;
+        methodEntry.total += Number(order.total);
         methodEntry.count += 1;
         byMethodMap.set(methodLabel, methodEntry);
       }
 
       return {
         total,
-        count: orders.length,
+        count: facturableOrders.length,
         byDay: Array.from(byDayMap.entries())
           .map(([date, data]) => ({ date, ...data }))
           .sort((a, b) => a.date.localeCompare(b.date)),

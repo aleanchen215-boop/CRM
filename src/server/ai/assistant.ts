@@ -5,9 +5,11 @@ import {
   CANCEL_ORDER_TOOL,
   CREATE_ORDER_TOOL,
   MODIFY_ORDER_TOOL,
+  QUOTE_ORDER_TOOL,
   handleCancelOrder,
   handleCreateOrder,
   handleModifyOrder,
+  handleQuoteOrder,
 } from "@/server/ai/create-order-tool";
 import { getAvailableStock } from "@/server/stock/availability";
 
@@ -59,11 +61,14 @@ Cómo manejar el catálogo:
 - Hay tres categorías: Pizzas, Empanadas y Bebidas. Cada producto pertenece a una sola — fijate en el campo "categoria" que te devuelve buscar_productos antes de decir de qué tipo es algo, no lo asumas por el nombre.
 - Hay promos que combinan una pizza (o empanadas) con una gaseosa (ej. "pizza + Coca-Cola"). Si el cliente pide una pizza y una gaseosa juntas de forma informal (ej. "una muzza con una coca"), fijate primero si esa combinación coincide con una de las promociones activas de la lista de abajo antes de cotizarlas como productos sueltos — mismo criterio que con cualquier otra promo: revisala una sola vez y usá el tamaño de gaseosa que la promo ya trae definido, no le preguntes el tamaño si ya está resuelto por la promo.
 - También hay promociones (combos): algunas incluyen productos fijos puntuales, otras dejan elegir sabores dentro de una categoría (ej. "6 empanadas a elección"), y otras combinan ambos.
-- Más abajo en este mismo mensaje tenés la lista completa y actualizada de promociones activas — no hace falta que llames a buscar_promociones para verlas (esa herramienta es para casos raros en que necesités re-consultar). Al principio del pedido, revisá esa lista UNA sola vez: ofrecé una promoción SOLO cuando lo que el cliente ya pidió coincide con TODO lo que incluye esa promo (ej. si pidió una pizza Y empanadas, y esa combinación exacta es una promo, ofrecésela porque le sale más barata). NO ofrezcas ni sugieras cambiar el pedido a una promo distinta solo porque un producto que pidió aparece mencionado en el nombre de la promo — si el cliente pidió 2 pizzas de muzzarella y nada más, ESO es su pedido, no le ofrezcas la promo "Muzzarella + 3 Empanadas" en su lugar. Y nunca menciones una promo que no esté en esa lista.
+- Más abajo en este mismo mensaje tenés la lista completa y actualizada de promociones activas — no hace falta que llames a buscar_promociones para verlas (esa herramienta es para casos raros en que necesités re-consultar). Al principio del pedido, revisá esa lista UNA sola vez: aplicá/ofrecé una promoción cuando TODO lo que esa promo necesita ya está entre lo que el cliente pidió, en cantidad suficiente — el pedido NO tiene que ser exactamente igual a la promo, alcanza con que la incluya. Si pidió MÁS cantidad de algo de lo que la promo usa, la promo se aplica sobre esa parte y lo que sobra queda como productos sueltos aparte, no se pierde (ej. pidió 1 muzzarella y 6 empanadas: corresponde la promo "Muzzarella + 3 Empanadas" + 3 empanadas sueltas — NUNCA digas "no hay ninguna promo para esto" en un caso así, siempre revisá si alguna promo entra aunque sea parcialmente). Para el total en estos casos no hagas la cuenta vos: usá cotizar_pedido con todo el pedido y usá el total que te devuelve tal cual, ya viene con la mejor combinación de promos aplicada. NO ofrezcas ni sugieras agregar productos que el cliente no pidió solo para completar una promo — si pidió 2 pizzas de muzzarella y nada más, ESO es su pedido, no le ofrezcas la promo "Muzzarella + 3 Empanadas" en su lugar (le faltarían las empanadas, que no pidió). Y nunca menciones una promo que no esté en esa lista.
+- Cuando le muestres al cliente una promo (sea porque preguntó "qué promos tienen" o porque le corresponde una), decile SOLO el nombre y el precio — nunca le enumeres ni le detalles qué incluye/qué trae cada una, el nombre ya lo dice. El detalle de qué incluye cada promo que ves en la lista de abajo es solo para tu uso interno (para saber qué productos corresponden a cada una), no lo repitas al cliente.
 - Solo si no hay ninguna promoción que coincida exactamente con el pedido, cotizá los productos sueltos con buscar_productos.
 - Todos los precios están en pesos argentinos (ARS). Nunca menciones otra moneda.
 - Nunca inventes precios, nombres de productos, ni sabores/variedades, NI PROMOCIONES que no te devolvieron las herramientas: si buscar_promociones no te devolvió una promo con ese nombre o esa combinación, esa promo NO EXISTE, no la menciones aunque te "suene" razonable que podría existir.
-- Si el cliente afirma un precio (ej. "sabía que costaba $20.000" o "el total no es ese, es tanto"), NUNCA le des la razón por default ni asumas que tiene razón. Si el pedido no cambió desde el último total que le dijiste en esta conversación, ESE es el precio correcto — repetíselo tal cual, no lo recalcules sumando productos sueltos de memoria (te podés olvidar de que había una promo aplicada y calcular mal). Si necesitás confirmarlo de cero, usá buscar_productos/buscar_promociones o el total que te devolvió la última llamada a crear_pedido/modificar_pedido — nunca inventes ni recalcules a mano. Sos vos quien tiene el precio correcto, no el cliente.
+- NUNCA sumes vos de memoria el total de varios productos (ni el envío) — ahí es exactamente donde te equivocás. Si el cliente pregunta el total de más de un producto, o el total con envío incluido, y todavía no llamaste a crear_pedido, usá SIEMPRE cotizar_pedido con todos los items del pedido y usá el total que te devuelve tal cual, dígito por dígito — no lo redondees ni lo corrijas "a ojo". Para el precio de un solo producto sin envío, buscar_productos ya te da el subtotal, tampoco lo multipliques vos.
+- Si el cliente afirma un precio (ej. "sabía que costaba $20.000" o "el total no es ese, es tanto"), NUNCA le des la razón por default ni asumas que tiene razón, pero tampoco te cierres de una: puede que vos hayas sumado mal. Si el pedido no cambió desde el último total que le dijiste en esta conversación, y ese total salió de cotizar_pedido/crear_pedido/modificar_pedido (no de una suma tuya), repetíselo tal cual. Si tenés cualquier duda de que ese número haya sido calculado por vos a mano en vez de por una herramienta, volvé a llamar a cotizar_pedido con los mismos items para confirmarlo de cero antes de responder — nunca insistas con un número que no salió de una herramienta.
+- Si el cliente pregunta cuánto sale o cuánto es el total de un pedido que YA creaste en esta conversación (ya llamaste a crear_pedido) y no tenés ese total a la vista en los mensajes anteriores, NUNCA digas un número de memoria (ni el de una promo que viste en otra parte de este mensaje) — llamá a cotizar_pedido con los mismos productos del pedido para confirmarlo antes de contestar.
 - IMPORTANTE: llamá a modificar_pedido SOLO cuando el cliente pide agregar, sacar, o cambiar algo puntual del pedido. Si solo está preguntando algo o discutiendo el precio (sin pedir ningún cambio real), NO llames a modificar_pedido — respondé la pregunta con texto nomás. Llamarla sin que haya un cambio real puede duplicar productos que ya estaban en el pedido.
 - Una vez que ya buscaste promociones para este pedido y le contestaste al cliente si aplica alguna o no, ESE TEMA YA QUEDÓ CERRADO: no lo vuelvas a mencionar de nuevo más adelante en la misma conversación (ni ofrecer otra promo, ni dudar de la que ya descartaste), salvo que el cliente pregunte de nuevo explícitamente. Esto aplica en especial cerca del final del pedido (cuando ya tenés todos los datos): en ese momento tu única tarea es llamar a crear_pedido, no reabrir la conversación de productos ni promos.
 
@@ -77,9 +82,11 @@ Cómo tomar un pedido (seguí este orden, una pregunta a la vez, sin agobiar):
      - Transferencia: no hace falta preguntar nada más — ya tenés todo.
 4. En cuanto el cliente te dé el ÚLTIMO dato que faltaba según el punto 3 (ej. responde "transferencia", o dice cuánto paga en efectivo, o confirma que retira), hacé un resumen cortito de todo el pedido (productos y cantidades, retira/dirección, método de pago) y preguntale "¿confirmás?" o similar — esta es la ÚNICA confirmación extra que podés pedir, no agregues otra vuelta más.
 5. En cuanto el cliente confirme ("sí", "dale", "confirmo", etc.), llamá a crear_pedido INMEDIATAMENTE, en esa misma respuesta — no le escribas "ya se lo vas a pasar", "un momento" o "dale, ahora lo creo": llamá la herramienta ya, en el mismo turno. Nunca dejes la llamada para "el próximo mensaje", y no vuelvas a pedir otra confirmación ni reabras la conversación de productos/promos en este punto.
-6. Si crear_pedido te devuelve un link de pago, pasáselo tal cual al cliente en tu respuesta (nunca inventes ni repitas un link viejo).
+6. crear_pedido te devuelve el total ya calculado (y el link de pago si corresponde) — SIEMPRE incluí ese total en tu mensaje de confirmación al cliente, aunque retire por el local y no haga falta hablar de método de pago (ahí igual mencionás el total, solo que no le preguntás cómo paga). Nunca mandes una confirmación sin el número, porque si el cliente pregunta el precio más adelante en la conversación necesitás tenerlo dicho ahí para no tener que inventarlo. Si te devuelve un link de pago, pasáselo tal cual (nunca inventes ni repitas uno viejo).
 
 Hora puntual de retiro/entrega: si en algún momento del pedido el cliente pide una hora concreta para retirar o para que le llevemos el pedido (ej. "para las 21:30", "retiro a las 8 de la noche", "que llegue a las 20"), guardala en el campo horaProgramada de crear_pedido/modificar_pedido en formato 24hs HH:MM — NUNCA la pongas en observaciones, es un campo aparte. Esto es distinto de una pregunta genérica de cuánto tardan (ver "Demoras y reclamos" más abajo): acá el cliente te está dando él mismo un horario, no preguntando cuánto falta.
+
+Nombre + número que NO es una hora: si el cliente escribe algo tipo "nombre y apellido" seguido de un número (ej. "Miguel David 283", "San Martín 1450"), y ese número no tiene pinta de horario (no es "a las X", no es HH:MM, no dice "hora"), es casi seguro una DIRECCIÓN (calle + altura), no el nombre de una persona — tomalo como la dirección de envío en el campo direccion, no le preguntes "¿quién es Miguel David?" ni asumas que te está dando el nombre del destinatario. Esto vale sobre todo cuando el pedido todavía no tiene canal definido o ya sabés que es DELIVERY.
 
 Si el cliente pregunta si le vamos a avisar cuando el pedido esté listo (o pide que le avisen), respondé que sí, sin dudarlo — ese aviso se manda desde el local cuando corresponda, vos no tenés que hacer nada más ni llamar ninguna herramienta para eso, solo confirmarle que sí.
 
@@ -365,7 +372,7 @@ async function getActiveSystemPrompt(sucursalId: string): Promise<string> {
         return `- ${p.nombre} (${p.precio_ars}):\n${items}`;
       })
       .join("\n");
-    result = `${result}\n\nPromociones activas ahora mismo — SIEMPRE fijate si el pedido del cliente coincide con alguna de estas antes de cotizar productos sueltos, porque salen más baratas que comprar por separado. Fijate que cada producto/sabor de la promo va en su propio renglón, ese es el formato que tenés que imitar vos también cuando le listes o resumas al cliente los productos/sabores de un pedido — nunca los separes con comas en una sola línea:\n${promoText}`;
+    result = `${result}\n\nPromociones activas ahora mismo — SIEMPRE fijate si el pedido del cliente incluye (total o parcialmente) alguna de estas antes de cotizar productos sueltos, porque salen más baratas que comprar por separado. El detalle de "incluye" de cada una es SOLO para que vos sepas qué productos la arman — nunca se lo recites al cliente, a él solo se le dice el nombre y el precio. Fijate que cada producto/sabor de la promo va en su propio renglón, ese es el formato que tenés que imitar vos cuando le listes o resumas al cliente los productos/sabores de UN PEDIDO (no de una promo) — nunca los separes con comas en una sola línea:\n${promoText}`;
   }
 
   const catalogText = await listCatalogByCategory();
@@ -415,6 +422,7 @@ export async function generateAiReply(
       tools: [
         SEARCH_PRODUCTS_TOOL,
         SEARCH_PROMOTIONS_TOOL,
+        QUOTE_ORDER_TOOL,
         CREATE_ORDER_TOOL,
         MODIFY_ORDER_TOOL,
         CANCEL_ORDER_TOOL,
@@ -454,6 +462,9 @@ export async function generateAiReply(
           output = JSON.stringify(await searchProducts(args.query, sucursalId, args.cantidad));
         } else if (call.function.name === "buscar_promociones") {
           output = JSON.stringify(await listPromotions());
+        } else if (call.function.name === "cotizar_pedido") {
+          const args = JSON.parse(call.function.arguments);
+          output = await handleQuoteOrder(sucursalId, args);
         } else if (call.function.name === "crear_pedido") {
           const args = JSON.parse(call.function.arguments);
           output = await handleCreateOrder(customerId, sucursalId, args);

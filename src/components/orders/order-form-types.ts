@@ -11,6 +11,12 @@ export type OrderRowValue = {
 export type OrderFormValues = {
   customerId: string;
   method: (typeof paymentMethodValues)[number];
+  // Solo se usa con method = EFECTIVO en Delivery: con cuánto paga el
+  // cliente, para calcular el vuelto. String vacío = paga justo.
+  changeFor: string;
+  // Descuento manual opcional. discountValue vacío = sin descuento.
+  discountType: "PORCENTAJE" | "MONTO_FIJO";
+  discountValue: string;
   items: OrderRowValue[];
   notes: string;
   shippingAddress: string;

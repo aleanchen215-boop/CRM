@@ -94,6 +94,14 @@ export const orderInputSchema = z.object({
   // cuando no viene. Delivery/Apps sí lo necesitan, eso se valida aparte.
   customerId: z.string().optional(),
   method: z.enum(paymentMethodValues),
+  // Solo tiene sentido con method = EFECTIVO: con cuánto va a pagar el
+  // cliente (no el vuelto en sí, eso se calcula al vuelo restando el
+  // total). Vacío/undefined = paga justo, no hace falta llevar cambio.
+  changeFor: z.coerce.number().positive().optional(),
+  // Descuento manual (Ventas), nunca lo aplica la IA. Los dos campos van
+  // juntos: si viene uno tiene que venir el otro.
+  discountType: z.enum(["PORCENTAJE", "MONTO_FIJO"]).optional(),
+  discountValue: z.coerce.number().positive().optional(),
   channel: z.enum(salesChannelValues).default("MOSTRADOR"),
   channelSource: z.string().trim().optional(),
   items: z.array(orderItemInputSchema).min(1, "Agregá al menos un producto"),

@@ -14,8 +14,32 @@ import type { YCloudInboundMessageEvent } from "@/server/integrations/whatsapp/t
 // que termine de escribir sin sentirse demorado.
 const DEBOUNCE_MS = 8000;
 
+// Ver comentario en el uso más abajo — 4hs sin mensajes del cliente ni de la
+// IA se considera conversación terminada.
+const STALE_CONVERSATION_MS = 4 * 60 * 60 * 1000;
+
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function normalize(text: string) {
+  return text
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase();
+}
+
+// Caso puntual a pedido del dueño: Johana (clienta de Almafuerte) pide
+// picada de vez en cuando y esos pedidos los quiere atender él mismo, no la
+// IA — se detecta acá (no en el prompt) porque depender de que el modelo
+// "se acuerde" del nombre de una clienta puntual es frágil; esto es
+// determinístico y no falla.
+function needsHumanForJohanaPicada(sucursalSlug: string, customerFirstName: string, messageText: string): boolean {
+  return (
+    sucursalSlug === "almafuerte" &&
+    normalize(customerFirstName).includes("johana") &&
+    normalize(messageText).includes("picada")
+  );
 }
 
 async function respondWithAi(
@@ -127,6 +151,18 @@ export async function POST(request: Request) {
         orderBy: { lastMessageAt: "desc" },
       });
 
+      // Una conversación sin actividad hace más de 4hs se da por cerrada: si
+      // el cliente vuelve a escribir después de eso, arranca de cero (sin
+      // arrastrar pedidos/contexto viejo) en vez de seguir sumando mensajes
+      // a una conversación que ya quedó vieja. El cron de
+      // close-stale-conversations hace lo mismo de forma proactiva aunque el
+      // cliente no vuelva a escribir; esto es la garantía de que, escriba
+      // cuando escriba, nunca continúa una conversación de hace horas.
+      if (conversation && Date.now() - conversation.lastMessageAt.getTime() > STALE_CONVERSATION_MS) {
+        await prisma.conversation.update({ where: { id: conversation.id }, data: { status: "CERRADA" } });
+        conversation = null;
+      }
+
       if (!conversation) {
         conversation = await prisma.conversation.create({
           data: { customerId: customer.id, sucursalId: sucursal.id, status: "ABIERTA", aiActive: true },
@@ -143,23 +179,46 @@ export async function POST(request: Request) {
         },
       });
 
+      const forceHumanHandoff =
+        conversation.aiActive && needsHumanForJohanaPicada(sucursal.slug, customer.firstName, inbound.text.body);
+
       await prisma.conversation.update({
         where: { id: conversation.id },
         data: {
           lastMessageAt: new Date(),
-          // Si la IA ya está apagada acá (un empleado la tomó, o se
-          // escaló por un reclamo/demora), no la reabrimos solo porque el
-          // cliente mandó otro mensaje — que un empleado la cierre o la
-          // reactive a mano en vez de perder el aviso de "necesita atención".
-          ...(conversation.aiActive ? { status: "ABIERTA" as const } : {}),
+          ...(forceHumanHandoff
+            ? { status: "PENDIENTE" as const, aiActive: false }
+            : // Si la IA ya está apagada acá (un empleado la tomó, o se
+              // escaló por un reclamo/demora), no la reabrimos solo porque el
+              // cliente mandó otro mensaje — que un empleado la cierre o la
+              // reactive a mano en vez de perder el aviso de "necesita atención".
+              conversation.aiActive
+              ? { status: "ABIERTA" as const }
+              : {}),
         },
       });
 
-      // Generar y mandar la respuesta después de contestarle a YCloud, para
-      // no arriesgar un timeout del webhook mientras OpenAI/WhatsApp
-      // responden — y con el debounce de más arriba, para no contestar cada
-      // mensaje de una tanda por separado.
-      if (conversation.aiActive) {
+      if (forceHumanHandoff) {
+        const whatsappMessageId = await sendWhatsappTextMessage(
+          inbound.from,
+          "¡Hola! Ya te paso con alguien del local para tu pedido, en un toque te contesta 😊",
+          sucursal.id,
+        );
+        await prisma.message.create({
+          data: {
+            conversationId: conversation.id,
+            sender: "IA",
+            content: "¡Hola! Ya te paso con alguien del local para tu pedido, en un toque te contesta 😊",
+            type: "TEXTO",
+            approved: true,
+            whatsappMessageId: whatsappMessageId || undefined,
+          },
+        });
+      } else if (conversation.aiActive) {
+        // Generar y mandar la respuesta después de contestarle a YCloud, para
+        // no arriesgar un timeout del webhook mientras OpenAI/WhatsApp
+        // responden — y con el debounce de más arriba, para no contestar cada
+        // mensaje de una tanda por separado.
         const conversationId = conversation.id;
         after(() =>
           respondWithAi(conversationId, customer.id, inbound.from, sucursal.id, inboundMessage.id),

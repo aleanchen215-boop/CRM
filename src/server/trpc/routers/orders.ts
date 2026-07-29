@@ -12,6 +12,9 @@ import {
   reconcilePromotions,
   cancelOrder,
   updatePendingOrderPayment,
+  applyDiscount,
+  setPaymentMode,
+  recordSplitPayment,
 } from "@/server/orders/create-order";
 import { getAvailableStock, computeRequestedQuantities } from "@/server/stock/availability";
 import { getOrCreateWalkInCustomer } from "@/server/customers/walk-in";
@@ -162,6 +165,33 @@ export const ordersRouter = router({
       return toNumber(updated);
     }),
 
+  // Aplica, cambia o saca (discountType: null) un descuento manual sobre un
+  // pedido ya cargado — recalcula el total de cero a partir de los
+  // renglones actuales, así queda bien sin importar qué se haya
+  // agregado/sacado antes. Nunca la usa el asistente de WhatsApp.
+  applyDiscount: requirePermission("orders:write")
+    .input(
+      z.object({
+        id: z.string(),
+        discountType: z.enum(["PORCENTAJE", "MONTO_FIJO"]).nullable(),
+        discountValue: z.coerce.number().positive().optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const discount =
+        input.discountType && input.discountValue
+          ? { type: input.discountType, value: input.discountValue }
+          : null;
+      const updated = await applyDiscount(input.id, discount);
+      if (!updated) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Este pedido ya no se puede modificar (ya está en preparación o ya salió).",
+        });
+      }
+      return toNumber(updated);
+    }),
+
   create: requirePermission("orders:write")
     .input(orderInputSchema)
     .mutation(async ({ ctx, input }) => {
@@ -256,12 +286,59 @@ export const ordersRouter = router({
       const current = await ctx.prisma.order.findUnique({ where: { id: input.id } });
       if (!current) throw new TRPCError({ code: "NOT_FOUND" });
 
+      // Pago múltiple no se confirma acá: hay que cargar cómo se repartió
+      // entre los medios de pago primero (ver recordSplitPayment), que ya
+      // deja el pedido en ENTREGADO como parte de esa misma mutation.
+      if (input.status === "ENTREGADO" && current.paymentMode === "MULTIPLE") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Este pedido es de pago múltiple — cargá cómo se repartió el pago para marcarlo entregado.",
+        });
+      }
+
       const order = await ctx.prisma.order.update({
         where: { id: input.id },
         data: { status: input.status },
       });
 
       return toNumber(order);
+    }),
+
+  // Pago simple (un solo método) vs. múltiple (se reparte entre varios al
+  // marcar el pedido entregado, ver recordSplitPayment).
+  setPaymentMode: requirePermission("orders:write")
+    .input(z.object({ id: z.string(), paymentMode: z.enum(["SIMPLE", "MULTIPLE"]) }))
+    .mutation(async ({ input }) => {
+      const updated = await setPaymentMode(input.id, input.paymentMode);
+      if (!updated) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Este pedido ya no se puede modificar." });
+      }
+      return toNumber(updated);
+    }),
+
+  // Carga los montos de cada medio de pago (tienen que sumar exacto el
+  // total) y marca el pedido ENTREGADO en el mismo paso.
+  recordSplitPayment: requirePermission("orders:write")
+    .input(
+      z.object({
+        id: z.string(),
+        payments: z
+          .array(z.object({ method: z.enum(paymentMethodValues), amount: z.coerce.number().positive() }))
+          .min(1),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const result = await recordSplitPayment(input.id, input.payments);
+      if (result === null) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Este pedido ya no se puede modificar." });
+      }
+      if (result === "MISMATCH") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Los montos cargados no suman el total del pedido.",
+        });
+      }
+      return toNumber(result);
     }),
 
   // Marca que la comanda ya se imprimió al menos una vez — apaga el resalte

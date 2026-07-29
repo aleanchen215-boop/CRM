@@ -17,6 +17,8 @@ import { PaymentMethodSelect } from "@/components/orders/payment-method-select";
 import { OrderNotifyButton } from "@/components/orders/order-notify-button";
 import { OrderCancelButton } from "@/components/orders/order-cancel-button";
 import { EditOrderDialog } from "@/components/orders/edit-order-dialog";
+import { DiscountEditor } from "@/components/orders/discount-editor";
+import { PaymentModeToggle } from "@/components/orders/payment-mode-toggle";
 import { StaffNotesCard } from "@/components/orders/staff-notes-card";
 import { useCanPerform } from "@/lib/use-can-perform";
 import { markAsHandled } from "@/lib/printed-orders";
@@ -167,6 +169,9 @@ export default function OrderDetailPage({
     return <p className="text-sm text-muted-foreground">Pedido no encontrado.</p>;
   }
 
+  const itemsSubtotal = order.items.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
+  const discountAmount = itemsSubtotal + Number(order.deliveryFee ?? 0) - order.total;
+
   return (
     <div className="flex flex-col gap-6">
       {order.cancelRequestedByCustomerAt && (
@@ -211,6 +216,19 @@ export default function OrderDetailPage({
           {order.channel === "DELIVERY" && order.shippingAddress && (
             <p className="text-sm text-muted-foreground">Dirección: {order.shippingAddress}</p>
           )}
+          {order.method === "EFECTIVO" && order.changeFor != null && (
+            <p className="text-sm font-medium text-amber-600 dark:text-amber-400">
+              Paga con {formatCurrency(Number(order.changeFor))} — llevar {formatCurrency(Number(order.changeFor) - order.total)} de vuelto
+            </p>
+          )}
+          {order.paymentMode === "MULTIPLE" && order.payments.length > 0 && (
+            <p className="text-sm text-muted-foreground">
+              Pago repartido:{" "}
+              {order.payments
+                .map((p) => `${METHOD_LABELS[p.method] ?? p.method} ${formatCurrency(Number(p.amount))}`)
+                .join(" + ")}
+            </p>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <OrderNotifyButton orderId={order.id} channel={order.channel} />
@@ -223,9 +241,24 @@ export default function OrderDetailPage({
                 channel={order.channel}
                 channelSource={order.channelSource}
               />
+              <DiscountEditor
+                orderId={order.id}
+                discountType={order.discountType}
+                discountValue={order.discountValue != null ? Number(order.discountValue) : null}
+              />
             </>
           )}
-          <OrderStatusSelect orderId={order.id} status={order.status} />
+          {canEdit && order.status !== "CANCELADO" && order.status !== "ENTREGADO" && (
+            <PaymentModeToggle orderId={order.id} paymentMode={order.paymentMode} />
+          )}
+          <OrderStatusSelect
+            orderId={order.id}
+            status={order.status}
+            paymentMode={order.paymentMode}
+            total={order.total}
+            channel={order.channel}
+            channelSource={order.channelSource}
+          />
           <OrderCancelButton
             orderId={order.id}
             status={order.status}
@@ -310,7 +343,24 @@ export default function OrderDetailPage({
             </div>
           )}
 
-          <div className="flex justify-end">
+          <div className="flex flex-col items-end gap-1">
+            {discountAmount > 0 && (
+              <>
+                <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                  <span>Subtotal</span>
+                  <span>{formatCurrency(itemsSubtotal + Number(order.deliveryFee ?? 0))}</span>
+                </div>
+                <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                  <span>
+                    Descuento
+                    {order.discountType === "PORCENTAJE" && order.discountValue != null
+                      ? ` (${Number(order.discountValue)}%)`
+                      : ""}
+                  </span>
+                  <span>−{formatCurrency(discountAmount)}</span>
+                </div>
+              </>
+            )}
             <div className="flex items-center gap-4 text-sm">
               <span className="text-muted-foreground">Total</span>
               <span className="text-lg font-semibold">{formatCurrency(order.total)}</span>
@@ -346,6 +396,11 @@ export default function OrderDetailPage({
         {order.channel === "DELIVERY" && order.shippingAddress && (
           <p>Dirección: {order.shippingAddress}</p>
         )}
+        {order.method === "EFECTIVO" && order.changeFor != null && (
+          <p className="font-bold">
+            Paga con {formatCurrency(Number(order.changeFor))} — vuelto {formatCurrency(Number(order.changeFor) - order.total)}
+          </p>
+        )}
         {order.scheduledFor && <p className="font-bold">{formatScheduledLabel(order.scheduledFor, order.channel)}</p>}
         <hr className="my-1 border-dashed border-black" />
         {order.items.map((item) => (
@@ -362,6 +417,12 @@ export default function OrderDetailPage({
           <p className="flex justify-between">
             <span>Envío</span>
             <span>{formatCurrency(Number(order.deliveryFee))}</span>
+          </p>
+        )}
+        {discountAmount > 0 && (
+          <p className="flex justify-between">
+            <span>Descuento</span>
+            <span>−{formatCurrency(discountAmount)}</span>
           </p>
         )}
         <p className="receipt-total flex justify-between font-bold">
