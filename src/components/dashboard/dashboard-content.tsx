@@ -1,9 +1,11 @@
 "use client";
 
+import Link from "next/link";
 import {
   AlertTriangle,
   MessageCircle,
   PackageX,
+  Percent,
   ShoppingCart,
   Ticket,
   UserPlus,
@@ -13,6 +15,18 @@ import { trpc } from "@/lib/trpc/client";
 import { formatCurrency } from "@/lib/format";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useSucursalSelection } from "@/components/layout/sucursal-context";
+
+const discountDateFormatter = new Intl.DateTimeFormat("es-AR", {
+  timeZone: "America/Argentina/Buenos_Aires",
+  day: "2-digit",
+  month: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+});
+
+function formatDiscountValue(type: "PORCENTAJE" | "MONTO_FIJO" | null, value: number) {
+  return type === "PORCENTAJE" ? `${value}%` : formatCurrency(value);
+}
 
 export function DashboardContent() {
   const { selectedSucursalId } = useSucursalSelection();
@@ -66,6 +80,14 @@ export function DashboardContent() {
       icon: PackageX,
       value: data ? String(data.sinStock) : undefined,
       sub: "Insumos agotados",
+    },
+    {
+      label: "Descuentos del mes",
+      icon: Percent,
+      value: data ? formatCurrency(data.descuentosMes.total) : undefined,
+      sub: data
+        ? `${data.descuentosMes.count} pedido${data.descuentosMes.count === 1 ? "" : "s"} con descuento`
+        : undefined,
     },
   ];
 
@@ -148,6 +170,70 @@ export function DashboardContent() {
                       </span>
                     </span>
                     <span className="font-medium">{formatCurrency(item.total)}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base font-medium">Descuentos por vendedor — este mes</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {isLoading && <p className="text-sm text-muted-foreground">Cargando…</p>}
+            {!isLoading && data?.descuentosMes.porVendedor.length === 0 && (
+              <p className="text-sm text-muted-foreground">
+                Todavía no se cargó ningún descuento este mes.
+              </p>
+            )}
+            {data && data.descuentosMes.porVendedor.length > 0 && (
+              <ul className="flex flex-col gap-2">
+                {data.descuentosMes.porVendedor.map((item) => (
+                  <li
+                    key={item.employeeName}
+                    className="flex items-center justify-between gap-2 text-sm"
+                  >
+                    <span>
+                      {item.employeeName}{" "}
+                      <span className="text-muted-foreground">
+                        ({item.count} pedido{item.count === 1 ? "" : "s"})
+                      </span>
+                    </span>
+                    <span className="font-medium">{formatCurrency(item.total)}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base font-medium">Descuentos recientes</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {isLoading && <p className="text-sm text-muted-foreground">Cargando…</p>}
+            {!isLoading && data?.descuentosRecientes.length === 0 && (
+              <p className="text-sm text-muted-foreground">Todavía no se cargó ningún descuento.</p>
+            )}
+            {data && data.descuentosRecientes.length > 0 && (
+              <ul className="flex flex-col gap-2">
+                {data.descuentosRecientes.map((item) => (
+                  <li key={item.orderId} className="flex items-center justify-between gap-2 text-sm">
+                    <Link href={`/ventas/${item.orderId}`} className="min-w-0 flex-1 hover:underline">
+                      <span className="block truncate">
+                        {item.employeeName}{" "}
+                        <span className="text-muted-foreground">
+                          — {formatDiscountValue(item.type, item.value)} ·{" "}
+                          {discountDateFormatter.format(new Date(item.createdAt))}
+                        </span>
+                      </span>
+                    </Link>
+                    <span className="shrink-0 font-medium">−{formatCurrency(item.amount)}</span>
                   </li>
                 ))}
               </ul>

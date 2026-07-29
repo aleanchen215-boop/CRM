@@ -49,7 +49,7 @@ export const dashboardRouter = router({
     const today = dayFormatter.format(now);
     const thisMonth = monthFormatter.format(now);
 
-    const [entregados, activeOrdersCount, recentCustomers, openConversations, supplies] =
+    const [entregados, activeOrdersCount, recentCustomers, openConversations, supplies, discounted] =
       await Promise.all([
         ctx.prisma.order.findMany({
           where: { status: "ENTREGADO", ...(sucursalId ? { sucursalId } : {}) },
@@ -90,6 +90,27 @@ export const dashboardRouter = router({
           where: sucursalId ? { sucursalId } : {},
           select: { quantity: true, stockMinimo: true },
         }),
+        // Descuentos manuales cargados desde Ventas — no depende de que el
+        // pedido ya se haya entregado (el vendedor eligió el descuento al
+        // cargarlo, eso ya es lo que le interesa auditar al admin), pero sí
+        // se excluyen los cancelados porque ese descuento nunca se cobró.
+        ctx.prisma.order.findMany({
+          where: {
+            discountValue: { not: null },
+            status: { not: "CANCELADO" },
+            ...(sucursalId ? { sucursalId } : {}),
+          },
+          select: {
+            id: true,
+            total: true,
+            discountType: true,
+            discountValue: true,
+            createdAt: true,
+            employeeId: true,
+            employee: { select: { name: true } },
+          },
+          orderBy: { createdAt: "desc" },
+        }),
       ]);
 
     const entregadosHoy = entregados.filter((order) => isToday(order.createdAt, today));
@@ -120,6 +141,35 @@ export const dashboardRouter = router({
       }
     }
 
+    // El total final (order.total) ya viene con el descuento aplicado, no se
+    // guarda el subtotal previo — se reconstruye acá para saber cuánta plata
+    // representó cada descuento. Monto fijo: el valor cargado es
+    // directamente lo descontado (salvo que el pedido diera 0, ahí se
+    // recorta al total que quedó antes de descontar). Porcentaje: se
+    // despeja el subtotal desde total = subtotal * (1 - value/100).
+    function discountAmount(order: (typeof discounted)[number]): number {
+      const total = Number(order.total);
+      const value = Number(order.discountValue);
+      if (order.discountType === "MONTO_FIJO") return value;
+      if (value >= 100) return total;
+      const subtotal = total / (1 - value / 100);
+      return subtotal - total;
+    }
+
+    const discountsThisMonth = discounted.filter((o) => isThisMonth(o.createdAt, thisMonth));
+    const byEmployeeMap = new Map<string, { employeeName: string; count: number; total: number }>();
+    for (const order of discountsThisMonth) {
+      const key = order.employeeId ?? "sin-vendedor";
+      const current = byEmployeeMap.get(key) ?? {
+        employeeName: order.employee?.name ?? "Sin vendedor asignado",
+        count: 0,
+        total: 0,
+      };
+      current.count += 1;
+      current.total += discountAmount(order);
+      byEmployeeMap.set(key, current);
+    }
+
     return {
       ventasHoy: { count: entregadosHoy.length, total: sum(entregadosHoy) },
       ventasMes: { count: entregadosMes.length, total: sum(entregadosMes) },
@@ -135,6 +185,20 @@ export const dashboardRouter = router({
       formasDePagoHoy: Array.from(formasDePagoHoy.entries()).map(([label, data]) => ({
         label,
         ...data,
+      })),
+      descuentosMes: {
+        count: discountsThisMonth.length,
+        total: discountsThisMonth.reduce((acc, o) => acc + discountAmount(o), 0),
+        porVendedor: Array.from(byEmployeeMap.values()).sort((a, b) => b.total - a.total),
+      },
+      descuentosRecientes: discounted.slice(0, 15).map((order) => ({
+        orderId: order.id,
+        employeeName: order.employee?.name ?? "Sin vendedor asignado",
+        type: order.discountType,
+        value: Number(order.discountValue),
+        amount: discountAmount(order),
+        total: Number(order.total),
+        createdAt: order.createdAt,
       })),
     };
   }),
