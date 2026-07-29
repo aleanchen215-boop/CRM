@@ -15,7 +15,7 @@ const ALL_VALUE = "__todas__";
 
 // Solo aparece para usuarios sin sucursal fija (User.sucursalId nulo — Admin,
 // Supervisor, etc.): el resto de los roles ya está atado a una sola y no
-// necesita elegir. Afecta qué ve en Ventas/Conversaciones/Stock/Reportes.
+// necesita elegir. Afecta qué ve en Ventas/Stock/Reportes.
 // Depósito queda afuera aparte: su única pantalla (Stock) siempre muestra
 // las dos sucursales apiladas sin importar este selector, así que no tiene
 // ningún efecto para ese rol.

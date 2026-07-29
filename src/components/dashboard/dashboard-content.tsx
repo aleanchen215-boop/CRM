@@ -3,7 +3,6 @@
 import Link from "next/link";
 import {
   AlertTriangle,
-  MessageCircle,
   PackageX,
   Percent,
   ShoppingCart,
@@ -56,12 +55,6 @@ export function DashboardContent() {
       icon: UserPlus,
       value: data ? String(data.nuevosClientesHoy) : undefined,
       sub: "Hoy",
-    },
-    {
-      label: "Conversaciones abiertas",
-      icon: MessageCircle,
-      value: data ? String(data.conversacionesAbiertas) : undefined,
-      sub: "Sin cerrar",
     },
     {
       label: "Tickets abiertos",

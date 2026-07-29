@@ -49,7 +49,7 @@ export const dashboardRouter = router({
     const today = dayFormatter.format(now);
     const thisMonth = monthFormatter.format(now);
 
-    const [entregados, activeOrdersCount, recentCustomers, openConversations, supplies, discounted] =
+    const [entregados, activeOrdersCount, recentCustomers, supplies, discounted] =
       await Promise.all([
         ctx.prisma.order.findMany({
           where: { status: "ENTREGADO", ...(sucursalId ? { sucursalId } : {}) },
@@ -82,9 +82,6 @@ export const dashboardRouter = router({
         ctx.prisma.customer.findMany({
           where: { createdAt: { gte: new Date(now.getTime() - 48 * 60 * 60 * 1000) } },
           select: { createdAt: true },
-        }),
-        ctx.prisma.conversation.count({
-          where: { status: { not: "CERRADA" }, ...(sucursalId ? { sucursalId } : {}) },
         }),
         ctx.prisma.supply.findMany({
           where: sucursalId ? { sucursalId } : {},
@@ -175,7 +172,6 @@ export const dashboardRouter = router({
       ventasMes: { count: entregadosMes.length, total: sum(entregadosMes) },
       facturacionTotal: sum(entregados),
       nuevosClientesHoy: recentCustomers.filter((c) => isToday(c.createdAt, today)).length,
-      conversacionesAbiertas: openConversations,
       ticketsAbiertos: activeOrdersCount,
       stockBajo: supplies.filter((s) => s.quantity > 0 && s.quantity <= s.stockMinimo).length,
       sinStock: supplies.filter((s) => s.quantity <= 0).length,

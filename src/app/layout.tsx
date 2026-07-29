@@ -18,7 +18,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "CRM Paracao",
-  description: "CRM interno: clientes, conversaciones, ventas, stock e IA.",
+  description: "CRM interno: clientes, ventas, stock e IA.",
 };
 
 export default function RootLayout({

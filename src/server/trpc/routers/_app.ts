@@ -5,7 +5,6 @@ import { productsRouter } from "@/server/trpc/routers/products";
 import { promotionsRouter } from "@/server/trpc/routers/promotions";
 import { suppliesRouter } from "@/server/trpc/routers/supplies";
 import { ordersRouter } from "@/server/trpc/routers/orders";
-import { conversationsRouter } from "@/server/trpc/routers/conversations";
 import { aiRouter } from "@/server/trpc/routers/ai";
 import { dashboardRouter } from "@/server/trpc/routers/dashboard";
 import { reportsRouter } from "@/server/trpc/routers/reports";
@@ -22,7 +21,6 @@ export const appRouter = router({
   promotions: promotionsRouter,
   supplies: suppliesRouter,
   orders: ordersRouter,
-  conversations: conversationsRouter,
   ai: aiRouter,
   dashboard: dashboardRouter,
   reports: reportsRouter,

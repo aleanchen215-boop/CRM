@@ -5,6 +5,17 @@ import { sendWhatsappTextMessage } from "@/server/integrations/whatsapp/client";
 import { generateAiReply, type ChatTurn } from "@/server/ai/assistant";
 import type { YCloudInboundMessageEvent } from "@/server/integrations/whatsapp/types";
 
+// Interruptor global: la IA no contesta sola por WhatsApp mientras esto sea
+// false (a pedido, venía dando problemas) — todo lo demás sigue igual: se
+// sigue registrando cada mensaje entrante, se crean/actualizan clientes y
+// conversaciones como siempre, y un empleado puede seguir respondiendo a
+// mano desde Conversaciones (sendMessage no depende de esto). Ojo: con la
+// IA apagada, tampoco se auto-escala a PENDIENTE (eso lo decidía la IA), así
+// que el aviso "!" de conversaciones que necesitan atención no va a
+// dispararse solo — hay que revisar Conversaciones a mano. Para reactivarla,
+// volver a poner esto en true.
+const AI_AUTO_REPLY_ENABLED = false;
+
 // Cuánto esperar desde el último mensaje del cliente antes de generar la
 // respuesta — si escribe varios mensajes seguidos (típico de WhatsApp: manda
 // "buenas noches", "quiero una promo especial", "con envío a tal dirección",
@@ -180,7 +191,9 @@ export async function POST(request: Request) {
       });
 
       const forceHumanHandoff =
-        conversation.aiActive && needsHumanForJohanaPicada(sucursal.slug, customer.firstName, inbound.text.body);
+        AI_AUTO_REPLY_ENABLED &&
+        conversation.aiActive &&
+        needsHumanForJohanaPicada(sucursal.slug, customer.firstName, inbound.text.body);
 
       await prisma.conversation.update({
         where: { id: conversation.id },
@@ -214,7 +227,7 @@ export async function POST(request: Request) {
             whatsappMessageId: whatsappMessageId || undefined,
           },
         });
-      } else if (conversation.aiActive) {
+      } else if (AI_AUTO_REPLY_ENABLED && conversation.aiActive) {
         // Generar y mandar la respuesta después de contestarle a YCloud, para
         // no arriesgar un timeout del webhook mientras OpenAI/WhatsApp
         // responden — y con el debounce de más arriba, para no contestar cada

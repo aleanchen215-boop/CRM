@@ -7,11 +7,9 @@ import {
   Boxes,
   Landmark,
   LayoutDashboard,
-  MessageCircle,
   Settings,
   ShoppingCart,
   Sparkles,
-  TriangleAlert,
   UtensilsCrossed,
   Users,
   Workflow,
@@ -30,11 +28,10 @@ import {
 import { UserMenu } from "@/components/layout/user-menu";
 import { CerrarTurnoButton } from "@/components/turnos/cerrar-turno-button";
 import { isShiftRole } from "@/lib/shift-roles";
-import { trpc } from "@/lib/trpc/client";
 import type { UserRole } from "@/generated/prisma/enums";
 
 // Cajero, Productor y Depósito son roles acotados a un par de pantallas
-// puntuales (creados a pedido: cajero = conversaciones + ventas, productor =
+// puntuales (creados a pedido: cajero = ventas, productor =
 // stock de ambas sucursales, depósito = solo ver stock/faltantes de ambas,
 // sin modificar nada); Vendedor Paracao/Almafuerte son igual de acotados
 // pero además solo ven su propia sucursal (se filtra del lado del servidor
@@ -52,12 +49,6 @@ const NAV_ITEMS = [
     label: "Clientes",
     icon: Users,
     roles: ["ADMIN", "VENDEDOR", "ATENCION", "SUPERVISOR"],
-  },
-  {
-    href: "/conversaciones",
-    label: "Conversaciones",
-    icon: MessageCircle,
-    roles: ["ADMIN", "VENDEDOR", "ATENCION", "SUPERVISOR", "CAJERO", "VENDEDOR_PARACAO", "VENDEDOR_ALMAFUERTE"],
   },
   {
     href: "/ventas",
@@ -124,15 +115,6 @@ export function AppSidebar({ user }: { user: AppSidebarUser }) {
   const pathname = usePathname();
   const items = NAV_ITEMS.filter((item) => (item.roles as readonly UserRole[]).includes(user.role));
   const showConfiguracion = CONFIGURACION_ROLES.includes(user.role);
-  const hasConversaciones = items.some((item) => item.href === "/conversaciones");
-
-  // Conversaciones que la IA derivó y todavía nadie atendió — se pisa acá
-  // como un "!" en el nav para que se vea aunque no se esté parado en esa
-  // pantalla (ver caso Johana/picada en Almafuerte, que fuerza esta derivación).
-  const { data: pendingCount } = trpc.conversations.pendingCount.useQuery(undefined, {
-    enabled: hasConversaciones,
-    refetchInterval: 20000,
-  });
 
   return (
     <Sidebar collapsible="icon">
@@ -153,23 +135,15 @@ export function AppSidebar({ user }: { user: AppSidebarUser }) {
               {items.map((item) => {
                 const isActive =
                   item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
-                const showPendingAlert = item.href === "/conversaciones" && (pendingCount ?? 0) > 0;
                 return (
                   <SidebarMenuItem key={item.href}>
                     <SidebarMenuButton
                       render={<Link href={item.href} />}
                       isActive={isActive}
-                      tooltip={
-                        showPendingAlert
-                          ? `${item.label} — ${pendingCount} necesita${pendingCount === 1 ? "" : "n"} atención`
-                          : item.label
-                      }
+                      tooltip={item.label}
                     >
                       <item.icon />
                       <span className="flex-1">{item.label}</span>
-                      {showPendingAlert && (
-                        <TriangleAlert className="size-4 shrink-0 text-amber-500" />
-                      )}
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                 );

@@ -6,8 +6,6 @@ import type { UserRole } from "@/generated/prisma/enums";
 export const PERMISSIONS = {
   "customers:read": ["ADMIN", "VENDEDOR", "ATENCION", "SUPERVISOR", "CAJERO", "VENDEDOR_PARACAO", "VENDEDOR_ALMAFUERTE"],
   "customers:write": ["ADMIN", "VENDEDOR", "CAJERO", "VENDEDOR_PARACAO", "VENDEDOR_ALMAFUERTE"],
-  "conversations:read": ["ADMIN", "VENDEDOR", "ATENCION", "SUPERVISOR", "CAJERO", "VENDEDOR_PARACAO", "VENDEDOR_ALMAFUERTE"],
-  "conversations:write": ["ADMIN", "VENDEDOR", "ATENCION", "CAJERO", "VENDEDOR_PARACAO", "VENDEDOR_ALMAFUERTE"],
   "ai:approve": ["ADMIN", "ATENCION", "SUPERVISOR"],
   "ai:configure": ["ADMIN"],
   "orders:write": ["ADMIN", "VENDEDOR", "CAJERO", "VENDEDOR_PARACAO", "VENDEDOR_ALMAFUERTE"],
