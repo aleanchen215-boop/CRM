@@ -86,12 +86,17 @@ export function OrderItemRow({
   onRemove,
   canRemove,
   sucursalId,
+  channel,
 }: {
   index: number;
   control: Control<OrderFormValues>;
   onRemove: () => void;
   canRemove: boolean;
   sucursalId?: string;
+  // Lista oficial (Mostrador/Delivery) vs. lista Apps (Rappi/PedidosYa) — qué
+  // precio mostrar en el picker de productos, mismo criterio que el total
+  // del form y que el servidor.
+  channel: "MOSTRADOR" | "DELIVERY" | "APPS";
 }) {
   const { data: products } = trpc.products.list.useQuery({});
   const { data: promotions } = trpc.promotions.list.useQuery();
@@ -103,6 +108,8 @@ export function OrderItemRow({
     { enabled: Boolean(sucursalId) },
   );
   const outOfStock = (productId: string) => (stock?.[productId] ?? Infinity) <= 0;
+  const productPrice = (product: { price: number; priceApps: number }) =>
+    channel === "APPS" ? product.priceApps : product.price;
 
   return (
     <Controller
@@ -178,7 +185,7 @@ export function OrderItemRow({
                         {(id: string) => {
                           const product = filteredProducts?.find((p) => p.id === id);
                           return product
-                            ? `${product.name} (${formatCurrency(product.price)})`
+                            ? `${product.name} (${formatCurrency(productPrice(product))})`
                             : id;
                         }}
                       </SelectValue>
@@ -186,7 +193,7 @@ export function OrderItemRow({
                     <SelectContent>
                       {filteredProducts?.map((product) => (
                         <SelectItem key={product.id} value={product.id} disabled={outOfStock(product.id)}>
-                          {product.name} ({formatCurrency(product.price)})
+                          {product.name} ({formatCurrency(productPrice(product))})
                           {outOfStock(product.id) ? " — sin stock" : ""}
                         </SelectItem>
                       ))}

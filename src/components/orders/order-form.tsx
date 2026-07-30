@@ -116,6 +116,12 @@ export function OrderForm({
   // seleccionada arriba en el layout.
   const stockSucursalId = watchedSucursalId || selectedSucursalId || undefined;
 
+  // Lista oficial (Mostrador/Delivery) vs. lista Apps (Rappi/PedidosYa) — sin
+  // excepciones, mismo criterio que el servidor (ver resolveProductPrice en
+  // create-order.ts).
+  const productPrice = (product: { price: number; priceApps: number }) =>
+    channel === "APPS" ? product.priceApps : product.price;
+
   const itemsTotal = (watchedItems ?? []).reduce((sum, row) => {
     if (row.rowType === "PROMOCION") {
       const promo = promotions?.find((p) => p.id === row.promotionId);
@@ -127,8 +133,8 @@ export function OrderForm({
     // mismo cálculo tanto si queda sola como si se combina con otra mitad
     // (la suma de las dos mitades da el mismo total que la fórmula del
     // servidor para la mitad y mitad).
-    if (isHalfPizzaRow(row)) return sum + Math.round(product.price / 2 + 1000);
-    return sum + product.price * (row.quantity || 0);
+    if (isHalfPizzaRow(row)) return sum + Math.round(productPrice(product) / 2 + 1000);
+    return sum + productPrice(product) * (row.quantity || 0);
   }, 0);
   // Mismo valor fijo que DELIVERY_FEE en el servidor — se suma solo acá
   // para que la vista previa del total coincida con lo que se va a cobrar.
@@ -372,6 +378,7 @@ export function OrderForm({
                   onRemove={() => remove(index)}
                   canRemove={fields.length > 1}
                   sucursalId={stockSucursalId}
+                  channel={channel}
                 />
               ))}
             </div>

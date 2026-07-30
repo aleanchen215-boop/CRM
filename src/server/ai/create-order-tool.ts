@@ -535,7 +535,7 @@ export async function handleQuoteOrder(sucursalId: string, args: QuoteOrderArgs)
   if ("error" in resolved) return resolved.error;
 
   const deliveryFee = args.canal === "DELIVERY" ? DELIVERY_FEE : undefined;
-  const { lines, total } = await quoteOrderItems(resolved.orderItems, deliveryFee);
+  const { lines, total } = await quoteOrderItems(resolved.orderItems, deliveryFee, args.canal);
 
   const breakdown = lines.map((line) => `${line.label}: $${line.price.toLocaleString("es-AR")}`).join("\n");
   return `${breakdown}\nTotal: $${total.toLocaleString("es-AR")}`;

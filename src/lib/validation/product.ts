@@ -7,7 +7,11 @@ export const productInputSchema = z.object({
   category: z.string().trim().optional(),
   supplier: z.string().trim().optional(),
   cost: z.coerce.number().min(0, "No puede ser negativo"),
+  // Lista oficial (Mostrador/Delivery).
   price: z.coerce.number().min(0, "No puede ser negativo"),
+  // Lista Apps (Rappi/PedidosYa) — precio independiente, nunca se deriva de
+  // `price`.
+  priceApps: z.coerce.number().min(0, "No puede ser negativo"),
   ingredients: z.string().trim().max(500).optional(),
 });
 

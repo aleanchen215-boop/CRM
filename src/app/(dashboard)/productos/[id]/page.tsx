@@ -59,6 +59,7 @@ export default function ProductDetailPage({
               supplier: product.supplier?.name ?? "",
               cost: Number(product.cost),
               price: Number(product.price),
+              priceApps: Number(product.priceApps),
               ingredients: product.ingredients ?? "",
             }}
             onSuccess={() => {}}

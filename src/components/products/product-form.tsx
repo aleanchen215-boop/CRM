@@ -41,6 +41,7 @@ export function ProductForm(props: ProductFormProps) {
             supplier: "",
             cost: 0,
             price: 0,
+            priceApps: 0,
             ingredients: "",
           },
   });
@@ -112,16 +113,25 @@ export function ProductForm(props: ProductFormProps) {
             <FieldError errors={[form.formState.errors.cost]} />
           </Field>
           <Field>
-            <FieldLabel htmlFor="price">Precio</FieldLabel>
-            <Input id="price" type="number" step="0.01" {...form.register("price")} />
-            <FieldError errors={[form.formState.errors.price]} />
+            <FieldLabel htmlFor="internalCode">Código interno (opcional)</FieldLabel>
+            <Input id="internalCode" {...form.register("internalCode")} />
           </Field>
         </div>
 
-        <Field>
-          <FieldLabel htmlFor="internalCode">Código interno (opcional)</FieldLabel>
-          <Input id="internalCode" {...form.register("internalCode")} />
-        </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field>
+            <FieldLabel htmlFor="price">Lista oficial</FieldLabel>
+            <Input id="price" type="number" step="0.01" {...form.register("price")} />
+            <FieldError errors={[form.formState.errors.price]} />
+            <p className="text-xs text-muted-foreground">Mostrador y Delivery.</p>
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="priceApps">Lista Apps</FieldLabel>
+            <Input id="priceApps" type="number" step="0.01" {...form.register("priceApps")} />
+            <FieldError errors={[form.formState.errors.priceApps]} />
+            <p className="text-xs text-muted-foreground">Rappi y PedidosYa.</p>
+          </Field>
+        </div>
 
         <Field>
           <FieldLabel htmlFor="ingredients">Ingredientes (opcional)</FieldLabel>

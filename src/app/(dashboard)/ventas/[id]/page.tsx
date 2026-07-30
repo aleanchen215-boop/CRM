@@ -234,7 +234,12 @@ export default function OrderDetailPage({
           <OrderNotifyButton orderId={order.id} channel={order.channel} />
           {canEdit && MODIFIABLE_STATUSES.has(order.status) && (
             <>
-              <EditOrderDialog orderId={order.id} items={order.items} sucursalId={order.sucursalId} />
+              <EditOrderDialog
+                orderId={order.id}
+                items={order.items}
+                sucursalId={order.sucursalId}
+                channel={order.channel}
+              />
               <PaymentMethodSelect
                 orderId={order.id}
                 method={order.method}

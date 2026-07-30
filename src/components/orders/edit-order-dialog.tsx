@@ -34,10 +34,12 @@ export function EditOrderDialog({
   orderId,
   items,
   sucursalId,
+  channel,
 }: {
   orderId: string;
   items: Item[];
   sucursalId: string;
+  channel: "MOSTRADOR" | "DELIVERY" | "APPS";
 }) {
   const [open, setOpen] = useState(false);
   const utils = trpc.useUtils();
@@ -139,6 +141,7 @@ export function EditOrderDialog({
               onRemove={() => {}}
               canRemove={false}
               sucursalId={sucursalId}
+              channel={channel}
             />
             <Button type="button" onClick={handleAdd} disabled={addItems.isPending} className="self-end">
               <Plus />

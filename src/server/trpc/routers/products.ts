@@ -5,8 +5,8 @@ import { productInputSchema, productUpdateSchema } from "@/lib/validation/produc
 import { requirePermission, router } from "@/server/trpc/trpc";
 import { getAvailableStock } from "@/server/stock/availability";
 
-function toNumber(product: { cost: unknown; price: unknown }) {
-  return { cost: Number(product.cost), price: Number(product.price) };
+function toNumber(product: { cost: unknown; price: unknown; priceApps: unknown }) {
+  return { cost: Number(product.cost), price: Number(product.price), priceApps: Number(product.priceApps) };
 }
 
 // Categoría y proveedor se cargan como texto libre en el form; acá se
@@ -105,6 +105,7 @@ export const productsRouter = router({
             supplierId,
             cost: input.cost,
             price: input.price,
+            priceApps: input.priceApps,
             ingredients: input.ingredients || undefined,
           },
         });

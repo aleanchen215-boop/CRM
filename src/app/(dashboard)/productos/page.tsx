@@ -79,7 +79,8 @@ export default function ProductosPage() {
                     <TableHead>Producto</TableHead>
                     <TableHead>SKU</TableHead>
                     <TableHead>Costo</TableHead>
-                    <TableHead>Precio</TableHead>
+                    <TableHead>Lista oficial</TableHead>
+                    <TableHead>Lista Apps</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -99,6 +100,9 @@ export default function ProductosPage() {
                       </TableCell>
                       <TableCell className="text-muted-foreground">
                         {formatCurrency(product.price)}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {formatCurrency(product.priceApps)}
                       </TableCell>
                     </TableRow>
                   ))}

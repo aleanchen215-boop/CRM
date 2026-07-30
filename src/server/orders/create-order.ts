@@ -41,9 +41,18 @@ function isModifiable(status: string): boolean {
 // el de los productos que la arman).
 type SupplyDeduction = { productId: string; quantity: number };
 
+// Lista oficial (Mostrador/Delivery) vs. lista Apps (Rappi/PedidosYa) — sin
+// excepciones: todo renglón de producto suelto o media pizza se cobra según
+// el canal del pedido, nunca la lista oficial "por defecto" para Apps. Las
+// promociones quedan afuera (tienen un precio propio, no dos listas).
+function resolveProductPrice(product: { price: unknown; priceApps: unknown }, channel: string): number {
+  return channel === "APPS" ? Number(product.priceApps) : Number(product.price);
+}
+
 export async function resolveOrderItem(
   tx: Prisma.TransactionClient,
   item: OrderItemInput,
+  channel: string,
 ): Promise<{
   data: Prisma.OrderItemCreateManyOrderInput;
   price: number;
@@ -55,9 +64,10 @@ export async function resolveOrderItem(
     if (!product) {
       throw new TRPCError({ code: "NOT_FOUND", message: "Producto no encontrado." });
     }
+    const unitPrice = resolveProductPrice(product, channel);
     return {
-      data: { productId: product.id, quantity: item.quantity, unitPrice: product.price },
-      price: Number(product.price) * item.quantity,
+      data: { productId: product.id, quantity: item.quantity, unitPrice },
+      price: unitPrice * item.quantity,
       deductions: [{ productId: product.id, quantity: item.quantity }],
       label: `${item.quantity}x ${product.name}`,
     };
@@ -77,8 +87,8 @@ export async function resolveOrderItem(
     // media pizza sola; con dos, es una mitad y mitad y el total es la suma
     // de las dos mitades: (precio1 + precio2) / 2 + $2.000.
     const unitPrice = product2
-      ? Math.round((Number(product1.price) + Number(product2.price)) / 2 + 2000)
-      : Math.round(Number(product1.price) / 2 + 1000);
+      ? Math.round((resolveProductPrice(product1, channel) + resolveProductPrice(product2, channel)) / 2 + 2000)
+      : Math.round(resolveProductPrice(product1, channel) / 2 + 1000);
 
     const productos = product2
       ? [
@@ -279,7 +289,7 @@ export async function createOrder(input: CreateOrderInput) {
     const deductions: SupplyDeduction[] = [];
 
     for (const item of input.items) {
-      const resolved = await resolveOrderItem(tx, item);
+      const resolved = await resolveOrderItem(tx, item, input.channel);
       total += resolved.price;
       itemsData.push(resolved.data);
       deductions.push(...resolved.deductions);
@@ -335,6 +345,9 @@ export async function createOrder(input: CreateOrderInput) {
 export async function quoteOrderItems(
   items: OrderItemInput[],
   deliveryFee?: number,
+  // Cotización de la IA (siempre Mostrador/Delivery, nunca Apps — ver
+  // create-order-tool.ts) — lista oficial por defecto.
+  channel: string = "MOSTRADOR",
 ): Promise<{ lines: { label: string; price: number }[]; total: number }> {
   const lines: { label: string; price: number }[] = [];
   let total = 0;
@@ -345,7 +358,7 @@ export async function quoteOrderItems(
   const otherItems = items.filter((item) => item.kind !== "PRODUCTO");
 
   for (const item of otherItems) {
-    const resolved = await resolveOrderItem(prisma, item);
+    const resolved = await resolveOrderItem(prisma, item, channel);
     total += resolved.price;
     lines.push({ label: resolved.label, price: resolved.price });
   }
@@ -363,7 +376,7 @@ export async function quoteOrderItems(
         pool.set(product.id, {
           categoryId: product.categoryId,
           name: product.name,
-          price: Number(product.price),
+          price: resolveProductPrice(product, channel),
         });
       }
       quantities.set(product.id, (quantities.get(product.id) ?? 0) + item.quantity);
@@ -431,7 +444,7 @@ export async function addItemsToOrder(orderId: string, items: OrderInput["items"
     const itemsData: Prisma.OrderItemCreateManyOrderInput[] = [];
     const deductions: SupplyDeduction[] = [];
     for (const item of items) {
-      const resolved = await resolveOrderItem(tx, item);
+      const resolved = await resolveOrderItem(tx, item, order.channel);
       addedTotal += resolved.price;
       itemsData.push(resolved.data);
       deductions.push(...resolved.deductions);
@@ -806,7 +819,7 @@ export async function reconcilePromotions(orderId: string) {
         pool.set(item.productId, {
           categoryId: item.product?.categoryId ?? null,
           name: item.product?.name ?? "",
-          price: Number(item.product?.price ?? 0),
+          price: item.product ? resolveProductPrice(item.product, order.channel) : 0,
         });
       }
       initialQuantities.set(item.productId, (initialQuantities.get(item.productId) ?? 0) + item.quantity);
