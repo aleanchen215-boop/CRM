@@ -25,6 +25,19 @@ function toNumber<T extends { total: unknown }>(order: T) {
   return { ...order, total: Number(order.total) };
 }
 
+// Mismo criterio de "día de negocio" que dashboard.ts (ver BUSINESS_TIMEZONE
+// en create-order-tool.ts): Argentina no tiene horario de verano, así que
+// comparar por fecha en esta zona alcanza sin armar rangos UTC.
+const dayFormatter = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "America/Argentina/Buenos_Aires",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+function isToday(date: Date, today: string): boolean {
+  return dayFormatter.format(date) === today;
+}
+
 // Corta la venta manual (CRM) si algún renglón pide más de lo que queda de
 // stock trackeado (ProductSupplyUsage) — a diferencia del descuento real al
 // vender (que deja el stock ir a negativo a propósito, ver
@@ -76,6 +89,28 @@ export const ordersRouter = router({
         },
       });
       return orders.map(toNumber);
+    }),
+
+  // Suma del costo de envío de los pedidos Delivery entregados en el día de
+  // negocio actual — se resetea solo porque filtra por createdAt de hoy en
+  // cada consulta, no hay estado guardado en ningún lado.
+  deliveryTotalToday: requirePermission("orders:read")
+    .input(z.object({ sucursalId: z.string().optional() }).optional())
+    .query(async ({ ctx, input }) => {
+      const sucursalId = resolveSucursalFilter(ctx.user, input?.sucursalId);
+      const today = dayFormatter.format(new Date());
+      const orders = await ctx.prisma.order.findMany({
+        where: {
+          channel: "DELIVERY",
+          status: "ENTREGADO",
+          ...(sucursalId ? { sucursalId } : {}),
+        },
+        select: { deliveryFee: true, createdAt: true },
+      });
+      const total = orders
+        .filter((order) => isToday(order.createdAt, today))
+        .reduce((acc, order) => acc + Number(order.deliveryFee ?? 0), 0);
+      return { total };
     }),
 
   getById: requirePermission("orders:read")

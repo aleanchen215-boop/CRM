@@ -29,6 +29,10 @@ export default function VentasPage() {
     { sucursalId: selectedSucursalId },
     { refetchInterval: 5000 },
   );
+  const { data: deliveryTotal } = trpc.orders.deliveryTotalToday.useQuery(
+    { sucursalId: selectedSucursalId },
+    { refetchInterval: 5000 },
+  );
 
   // Avisa de pedidos nuevos que aparecieron entre un sondeo y otro (típico
   // de un pedido armado solo por WhatsApp) con un botón para imprimir la
@@ -68,7 +72,15 @@ export default function VentasPage() {
             Pedidos por canal, estados y comprobantes.
           </p>
         </div>
-        <NewOrderDialog />
+        <div className="flex items-center gap-3">
+          <div className="flex flex-col items-end rounded-lg border bg-card px-3 py-1.5">
+            <span className="text-xs text-muted-foreground">Total de envíos hoy</span>
+            <span className="text-base font-semibold tabular-nums">
+              {formatCurrency(deliveryTotal?.total ?? 0)}
+            </span>
+          </div>
+          <NewOrderDialog />
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
