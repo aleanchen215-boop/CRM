@@ -28,7 +28,7 @@ const MODIFIABLE_STATUSES = new Set(["PENDIENTE", "CONFIRMADO"]);
 const METHOD_LABELS: Record<string, string> = {
   MERCADO_PAGO: "Mercado Pago",
   EFECTIVO: "Efectivo",
-  TRANSFERENCIA: "Mercado Pago (link)",
+  TRANSFERENCIA: "Transferencia",
   OTRO: "Otro",
   PREPAGO: "Prepago",
   VISA: "Visa",
@@ -200,7 +200,7 @@ export default function OrderDetailPage({
               Pedido de {order.customer.firstName} {order.customer.lastName}
             </h1>
             <OrderStatusBadge status={order.status} />
-            <PaymentStatusBadge method={order.method} payments={order.payments} />
+            <PaymentStatusBadge orderId={order.id} method={order.method} payments={order.payments} />
             {order.scheduledFor && (
               <span className="rounded-full border border-blue-500/60 px-2 py-0.5 text-sm font-medium text-blue-600 dark:text-blue-400">
                 {formatScheduledLabel(order.scheduledFor, order.channel)}

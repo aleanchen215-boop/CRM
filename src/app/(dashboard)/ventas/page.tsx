@@ -119,7 +119,7 @@ export default function VentasPage() {
                         )}
                       </span>
                       <div className="flex items-center gap-1.5">
-                        <PaymentStatusBadge method={order.method} payments={order.payments} />
+                        <PaymentStatusBadge orderId={order.id} method={order.method} payments={order.payments} />
                         <OrderStatusBadge status={order.status} />
                       </div>
                     </div>

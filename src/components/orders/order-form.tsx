@@ -38,7 +38,7 @@ import { useSucursalSelection } from "@/components/layout/sucursal-context";
 const METHOD_LABELS: Record<(typeof paymentMethodValues)[number], string> = {
   MERCADO_PAGO: "Mercado Pago",
   EFECTIVO: "Efectivo",
-  TRANSFERENCIA: "Mercado Pago (link)",
+  TRANSFERENCIA: "Transferencia",
   OTRO: "Otro",
   PREPAGO: "Prepago",
   VISA: "Visa",
@@ -159,10 +159,12 @@ export function OrderForm({
   });
 
   const onSubmit = form.handleSubmit((values) => {
-    // Mostrador es venta anónima habitual (cliente que pasa y compra) — no
-    // hace falta cargarle un cliente. Delivery/Apps sí lo necesitan (hay que
-    // saber a quién/dónde enviar).
-    if (!values.customerId && channel !== "MOSTRADOR") {
+    // Mostrador es venta anónima habitual (cliente que pasa y compra) y Apps
+    // (Rappi/PedidosYa) ya tiene los datos del cliente en la otra
+    // plataforma, así que tampoco hace falta cargarlo acá — no hace falta
+    // cliente en ninguno de los dos. Delivery sí lo necesita (hay que saber
+    // a quién/dónde enviar).
+    if (!values.customerId && channel === "DELIVERY") {
       toast.error("Elegí un cliente.");
       return;
     }
@@ -217,7 +219,7 @@ export function OrderForm({
         <FieldGroup className="gap-3.5">
           <Field>
             <FieldLabel htmlFor="customerId">
-              Cliente{channel === "MOSTRADOR" ? " (opcional)" : ""}
+              Cliente{channel !== "DELIVERY" ? " (opcional)" : ""}
             </FieldLabel>
             <Controller
               control={form.control}
@@ -225,9 +227,9 @@ export function OrderForm({
               render={({ field }) => (
                 <CustomerCombobox
                   value={field.value}
-                  allowClear={channel === "MOSTRADOR"}
+                  allowClear={channel !== "DELIVERY"}
                   placeholder={
-                    channel === "MOSTRADOR"
+                    channel !== "DELIVERY"
                       ? "Buscar por nombre o teléfono (opcional)…"
                       : "Buscar por nombre o teléfono…"
                   }

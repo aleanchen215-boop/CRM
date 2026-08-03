@@ -14,7 +14,7 @@ import {
 const METHOD_LABELS: Record<(typeof paymentMethodValues)[number], string> = {
   MERCADO_PAGO: "Mercado Pago",
   EFECTIVO: "Efectivo",
-  TRANSFERENCIA: "Mercado Pago (link)",
+  TRANSFERENCIA: "Transferencia",
   OTRO: "Otro",
   PREPAGO: "Prepago",
   VISA: "Visa",

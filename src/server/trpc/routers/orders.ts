@@ -12,6 +12,7 @@ import {
   reconcilePromotions,
   cancelOrder,
   updatePendingOrderPayment,
+  setManualPaymentPaid,
   applyDiscount,
   setPaymentMode,
   recordSplitPayment,
@@ -165,6 +166,27 @@ export const ordersRouter = router({
       return toNumber(updated);
     }),
 
+  // Marca/desmarca a mano el cartel de "Pagado" de un pedido pagado por
+  // transferencia (Delivery) — quien vende confirma cuando ve la plata
+  // entrar a la cuenta del local, no hay webhook que lo haga solo como con
+  // el link de Mercado Pago.
+  setPaymentPaid: requirePermission("orders:write")
+    .input(z.object({ id: z.string(), paid: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      const order = await ctx.prisma.order.findUnique({ where: { id: input.id } });
+      if (!order) throw new TRPCError({ code: "NOT_FOUND" });
+      if (order.method !== "TRANSFERENCIA") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "El estado de pago solo se puede cambiar a mano en pedidos por transferencia.",
+        });
+      }
+
+      const updated = await setManualPaymentPaid(input.id, input.paid);
+      if (!updated) throw new TRPCError({ code: "NOT_FOUND" });
+      return toNumber(updated);
+    }),
+
   // Aplica, cambia o saca (discountType: null) un descuento manual sobre un
   // pedido ya cargado — recalcula el total de cero a partir de los
   // renglones actuales, así queda bien sin importar qué se haya
@@ -203,12 +225,14 @@ export const ordersRouter = router({
         });
       }
 
-      // Solo Mostrador admite venta sin cliente cargado (walk-in) — se
-      // resuelve a un cliente genérico compartido. Delivery/Apps siguen
-      // necesitando uno real (hay que saber a quién/dónde enviar).
+      // Mostrador y Apps (Rappi/PedidosYa) admiten venta sin cliente cargado
+      // — se resuelve a un cliente genérico compartido (en Apps el cliente
+      // ya está identificado del lado de la plataforma, no hace falta
+      // cargarlo también acá). Delivery sigue necesitando uno real (hay que
+      // saber a quién/dónde enviar).
       let customerId = input.customerId;
       if (!customerId) {
-        if (input.channel !== "MOSTRADOR") {
+        if (input.channel === "DELIVERY") {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Elegí un cliente para este pedido." });
         }
         customerId = (await getOrCreateWalkInCustomer(ctx.prisma)).id;

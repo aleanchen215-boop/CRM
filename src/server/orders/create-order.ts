@@ -635,6 +635,39 @@ export async function updatePendingOrderPayment(
   });
 }
 
+// Marca/desmarca a mano si ya se recibió la transferencia de un pedido
+// Delivery (method = TRANSFERENCIA) — a diferencia del link de Mercado Pago
+// que genera la IA (que se confirma solo, vía webhook), acá el cliente
+// transfiere directo a la cuenta del local y alguien tiene que avisar
+// cuando ve la plata entrar. Reutiliza Payment en vez de sumar un campo
+// aparte en Order, así el badge de Pagado/No pagado sigue mirando lo mismo
+// de siempre (algún Payment con status APROBADO); mercadoPagoPaymentId
+// queda null para no pisar nunca los que sí vienen del webhook. No exige
+// que el pedido siga "modificable": puede confirmarse el cobro después de
+// entregado.
+export async function setManualPaymentPaid(orderId: string, paid: boolean) {
+  return prisma.$transaction(async (tx) => {
+    const order = await tx.order.findUnique({ where: { id: orderId } });
+    if (!order) return null;
+
+    const existing = await tx.payment.findFirst({ where: { orderId, mercadoPagoPaymentId: null } });
+
+    if (paid) {
+      if (existing) {
+        await tx.payment.update({ where: { id: existing.id }, data: { status: "APROBADO" } });
+      } else {
+        await tx.payment.create({
+          data: { orderId, status: "APROBADO", amount: order.total, method: order.method },
+        });
+      }
+    } else if (existing) {
+      await tx.payment.update({ where: { id: existing.id }, data: { status: "PENDIENTE" } });
+    }
+
+    return order;
+  });
+}
+
 // Aplica (o cambia, o saca con discount: null) un descuento manual sobre un
 // pedido PENDIENTE o CONFIRMADO desde Ventas — recalcula el total de cero a
 // partir de los renglones actuales + envío, así queda bien sin importar qué
