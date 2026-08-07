@@ -89,9 +89,11 @@ export const orderItemInputSchema = z.discriminatedUnion("kind", [
 ]);
 
 export const orderInputSchema = z.object({
-  // Opcional: Mostrador acepta venta sin cliente cargado (walk-in) — se
-  // resuelve del lado del servidor a un cliente genérico "Consumidor Final"
-  // cuando no viene. Delivery/Apps sí lo necesitan, eso se valida aparte.
+  // Opcional en los tres canales — Mostrador y Apps ya lo eran (venta
+  // walk-in / cliente identificado en la otra plataforma); Delivery
+  // también acepta crear el pedido sin cliente cargado, alcanza con
+  // shippingAddress. Cuando no viene, el servidor lo resuelve a un cliente
+  // genérico "Consumidor Final" (ver getOrCreateWalkInCustomer).
   customerId: z.string().optional(),
   method: z.enum(paymentMethodValues),
   // Solo tiene sentido con method = EFECTIVO: con cuánto va a pagar el

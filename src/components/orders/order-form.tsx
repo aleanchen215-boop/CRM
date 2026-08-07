@@ -159,15 +159,10 @@ export function OrderForm({
   });
 
   const onSubmit = form.handleSubmit((values) => {
-    // Mostrador es venta anónima habitual (cliente que pasa y compra) y Apps
+    // Mostrador es venta anónima habitual (cliente que pasa y compra), Apps
     // (Rappi/PedidosYa) ya tiene los datos del cliente en la otra
-    // plataforma, así que tampoco hace falta cargarlo acá — no hace falta
-    // cliente en ninguno de los dos. Delivery sí lo necesita (hay que saber
-    // a quién/dónde enviar).
-    if (!values.customerId && channel === "DELIVERY") {
-      toast.error("Elegí un cliente.");
-      return;
-    }
+    // plataforma, y Delivery alcanza con la dirección de entrega cargada
+    // abajo — así que el cliente nunca es obligatorio para crear el pedido.
     if (needsSucursalPicker && !values.sucursalId) {
       toast.error("Elegí a qué sucursal pertenece esta venta.");
       return;
@@ -218,21 +213,15 @@ export function OrderForm({
       <form onSubmit={onSubmit} className="flex flex-col gap-4">
         <FieldGroup className="gap-3.5">
           <Field>
-            <FieldLabel htmlFor="customerId">
-              Cliente{channel !== "DELIVERY" ? " (opcional)" : ""}
-            </FieldLabel>
+            <FieldLabel htmlFor="customerId">Cliente (opcional)</FieldLabel>
             <Controller
               control={form.control}
               name="customerId"
               render={({ field }) => (
                 <CustomerCombobox
                   value={field.value}
-                  allowClear={channel !== "DELIVERY"}
-                  placeholder={
-                    channel !== "DELIVERY"
-                      ? "Buscar por nombre o teléfono (opcional)…"
-                      : "Buscar por nombre o teléfono…"
-                  }
+                  allowClear
+                  placeholder="Buscar por nombre o teléfono (opcional)…"
                   onCreateNew={(prefillWhatsapp) => {
                     setNewCustomerPrefill(prefillWhatsapp);
                     setNewCustomerOpen(true);

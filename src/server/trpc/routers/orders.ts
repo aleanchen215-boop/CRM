@@ -260,16 +260,13 @@ export const ordersRouter = router({
         });
       }
 
-      // Mostrador y Apps (Rappi/PedidosYa) admiten venta sin cliente cargado
-      // — se resuelve a un cliente genérico compartido (en Apps el cliente
-      // ya está identificado del lado de la plataforma, no hace falta
-      // cargarlo también acá). Delivery sigue necesitando uno real (hay que
-      // saber a quién/dónde enviar).
+      // Mostrador, Delivery y Apps admiten venta sin cliente cargado — se
+      // resuelve a un cliente genérico compartido (en Apps el cliente ya
+      // está identificado del lado de la plataforma; en Delivery alcanza con
+      // la dirección de envío cargada en el pedido, no hace falta el cliente
+      // en sí).
       let customerId = input.customerId;
       if (!customerId) {
-        if (input.channel === "DELIVERY") {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "Elegí un cliente para este pedido." });
-        }
         customerId = (await getOrCreateWalkInCustomer(ctx.prisma)).id;
       }
 
