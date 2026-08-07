@@ -9,7 +9,6 @@ import {
   LayoutDashboard,
   Settings,
   ShoppingCart,
-  Sparkles,
   UtensilsCrossed,
   Users,
   Workflow,
@@ -75,12 +74,6 @@ const NAV_ITEMS = [
       "VENDEDOR_ALMAFUERTE",
       "REPARTIDOR",
     ],
-  },
-  {
-    href: "/ia",
-    label: "IA",
-    icon: Sparkles,
-    roles: ["ADMIN", "ATENCION", "SUPERVISOR"],
   },
   {
     href: "/automatizaciones",
