@@ -65,3 +65,42 @@ export async function sendWhatsappTextMessage(
   const data = (await response.json()) as { id?: string; wamid?: string };
   return data.wamid ?? data.id ?? "";
 }
+
+// Mensaje de plantilla (HSM) — a diferencia de sendWhatsappTextMessage, este
+// es el único tipo que WhatsApp deja mandar cuando el negocio inicia el
+// contacto (el cliente no escribió en las últimas 24hs) o es de categoría
+// Marketing — el texto libre lo rechaza. La plantilla tiene que existir y
+// estar aprobada de antes en YCloud/Meta con el mismo nombre e idioma.
+export async function sendWhatsappTemplateMessage(
+  to: string,
+  templateName: string,
+  languageCode: string,
+  sucursalId: string,
+): Promise<string> {
+  const { apiKey, from } = await getCredentialsForSucursal(sucursalId);
+
+  const response = await fetch(`${YCLOUD_API_BASE}/whatsapp/messages/sendDirectly`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-API-Key": apiKey,
+    },
+    body: JSON.stringify({
+      from,
+      to,
+      type: "template",
+      template: {
+        name: templateName,
+        language: { code: languageCode },
+      },
+    }),
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`Error al enviar la plantilla de WhatsApp: ${errorBody}`);
+  }
+
+  const data = (await response.json()) as { id?: string; wamid?: string };
+  return data.wamid ?? data.id ?? "";
+}

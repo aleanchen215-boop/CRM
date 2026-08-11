@@ -121,20 +121,24 @@ enum CustomerStatus {
 }
 
 model Customer {
-  id        String         @id @default(uuid())
-  firstName String
-  lastName  String
-  whatsapp  String         @unique
-  email     String?
-  address   String?
-  city      String?
-  province  String?
-  country   String?
-  status    CustomerStatus @default(ACTIVO)
-  origin    String?
-  notes     String?
-  createdAt DateTime       @default(now())
-  updatedAt DateTime       @updatedAt
+  id                   String         @id @default(uuid())
+  firstName            String
+  lastName             String
+  whatsapp             String         @unique
+  email                String?
+  address              String?
+  city                 String?
+  province             String?
+  country              String?
+  status               CustomerStatus @default(ACTIVO)
+  origin               String?
+  notes                String?
+  // Se pone en hora cuando se le manda el mensaje automático de "te
+  // extrañamos" (cron winback-inactive-customers) — una sola vez por
+  // cliente, aunque siga sin volver a comprar, para no repetirlo cada día.
+  winbackMessageSentAt DateTime?
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
 
   tags          CustomerTag[]
   categories    CustomerCategoryAssignment[]

@@ -5,7 +5,7 @@ import type { PrismaClient } from "@/generated/prisma/client";
 // lugar que asume que order.customer existe), se resuelve a un único
 // cliente genérico compartido. `whatsapp` es unique y NOT NULL en Customer,
 // así que necesita algún valor: uno fijo, no un teléfono real.
-const WALK_IN_WHATSAPP = "consumidor-final";
+export const WALK_IN_WHATSAPP = "consumidor-final";
 
 export async function getOrCreateWalkInCustomer(prisma: PrismaClient) {
   return prisma.customer.upsert({
