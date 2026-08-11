@@ -273,6 +273,22 @@ export const ordersRouter = router({
       const sucursalId = resolveSucursalForWrite(ctx.user, input.sucursalId);
       await assertStockAvailable(ctx.prisma, input.items, sucursalId);
       const order = await createOrder({ ...input, customerId, sucursalId, employeeId: ctx.user.id });
+
+      // Si se cargó una dirección de entrega para un cliente puntual (no el
+      // genérico de mostrador), queda guardada en su ficha — así la próxima
+      // vez que se lo elija en un pedido delivery ya aparece precargada, sin
+      // tener que volver a tipearla (igual se puede editar).
+      if (input.customerId && input.channel === "DELIVERY" && input.shippingAddress?.trim()) {
+        const address = input.shippingAddress.trim();
+        const customer = await ctx.prisma.customer.findUnique({
+          where: { id: input.customerId },
+          select: { address: true },
+        });
+        if (customer && customer.address !== address) {
+          await ctx.prisma.customer.update({ where: { id: input.customerId }, data: { address } });
+        }
+      }
+
       return toNumber(order);
     }),
 

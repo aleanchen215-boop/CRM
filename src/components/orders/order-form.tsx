@@ -172,10 +172,6 @@ export function OrderForm({
       toast.error(error);
       return;
     }
-    if (channel === "DELIVERY" && !values.shippingAddress.trim()) {
-      toast.error("Completá la dirección de entrega.");
-      return;
-    }
     const changeFor =
       channel === "DELIVERY" && values.method === "EFECTIVO" && values.changeFor.trim()
         ? Number(values.changeFor)
@@ -191,7 +187,8 @@ export function OrderForm({
       channelSource,
       items: toApiItems(values.items),
       notes: values.notes.trim() || undefined,
-      shippingAddress: channel === "DELIVERY" ? values.shippingAddress.trim() : undefined,
+      shippingAddress:
+        channel === "DELIVERY" && values.shippingAddress.trim() ? values.shippingAddress.trim() : undefined,
       sucursalId: needsSucursalPicker ? values.sucursalId : undefined,
     });
   });
@@ -276,7 +273,7 @@ export function OrderForm({
 
           {channel === "DELIVERY" && (
             <Field>
-              <FieldLabel htmlFor="shippingAddress">Dirección de entrega</FieldLabel>
+              <FieldLabel htmlFor="shippingAddress">Dirección de entrega (opcional)</FieldLabel>
               {addressLocked ? (
                 <div className="flex items-center gap-2 rounded-md border border-input bg-muted/40 px-3 py-1.5 text-sm">
                   <span className="flex-1 truncate">{watchedShippingAddress}</span>
