@@ -3,6 +3,16 @@ import { z } from "zod";
 import { requirePermission, router } from "@/server/trpc/trpc";
 import type { Prisma } from "@/generated/prisma/client";
 
+// Mismo criterio de "día de negocio" que dashboard.ts/orders.ts: Argentina
+// no tiene horario de verano, así que agrupar por fecha en esta zona
+// alcanza sin armar rangos UTC.
+const dayFormatter = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "America/Argentina/Buenos_Aires",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+
 async function getCashSalesTotal(
   prisma: Prisma.TransactionClient,
   sucursalId: string,
@@ -106,12 +116,14 @@ export const turnosRouter = router({
       }
 
       const now = new Date();
-      const [ventasEfectivo, retirosAgg] = await Promise.all([
+      const [ventasEfectivo, retirosAgg, pagosCadeteAgg] = await Promise.all([
         getCashSalesTotal(ctx.prisma, sucursalId, turno.abiertoEn, now),
         ctx.prisma.retiroCaja.aggregate({ where: { turnoId: turno.id }, _sum: { monto: true } }),
+        ctx.prisma.pagoCadete.aggregate({ where: { turnoId: turno.id }, _sum: { monto: true } }),
       ]);
       const totalRetiros = Number(retirosAgg._sum.monto ?? 0);
-      const montoEsperado = Number(turno.montoApertura) + ventasEfectivo - totalRetiros;
+      const totalPagosCadete = Number(pagosCadeteAgg._sum.monto ?? 0);
+      const montoEsperado = Number(turno.montoApertura) + ventasEfectivo - totalRetiros - totalPagosCadete;
       const diferencia = input.montoContado - montoEsperado;
 
       const closed = await ctx.prisma.turno.update({
@@ -146,6 +158,26 @@ export const turnosRouter = router({
       }
 
       return ctx.prisma.retiroCaja.create({
+        data: { turnoId: turno.id, sucursalId, employeeId: ctx.user.id, monto: input.monto },
+      });
+    }),
+
+  // Pago en efectivo al cadete (ej. viáticos/comisión) — a diferencia de
+  // createRetiro, esta plata no va a la caja fuerte, sale directo del
+  // negocio. Igual resta del efectivo esperado al cierre del turno.
+  createPagoCadete: requirePermission("turnos:operate")
+    .input(z.object({ monto: z.coerce.number().positive() }))
+    .mutation(async ({ ctx, input }) => {
+      const sucursalId = ctx.user.sucursalId;
+      if (!sucursalId) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Tu cuenta no tiene una sucursal asignada." });
+      }
+      const turno = await ctx.prisma.turno.findFirst({ where: { sucursalId, cerradoEn: null } });
+      if (!turno) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Abrí el turno antes de registrar un pago." });
+      }
+
+      return ctx.prisma.pagoCadete.create({
         data: { turnoId: turno.id, sucursalId, employeeId: ctx.user.id, monto: input.monto },
       });
     }),
@@ -191,6 +223,38 @@ export const turnosRouter = router({
         orderBy: { createdAt: "desc" },
       });
       return retiros.map((r) => ({ ...r, monto: Number(r.monto) }));
+    }),
+
+  // Pagos a cadete agrupados por día (huso Argentina) — a diferencia de
+  // listRetiros, acá Finanzas quiere ver la salida diaria total, no un
+  // listado plano de movimientos sueltos.
+  listPagosCadete: requirePermission("finanzas:audit")
+    .input(z.object({ from: z.coerce.date(), to: z.coerce.date(), sucursalId: z.string().optional() }))
+    .query(async ({ ctx, input }) => {
+      const toEnd = new Date(input.to);
+      toEnd.setHours(23, 59, 59, 999);
+      const pagos = await ctx.prisma.pagoCadete.findMany({
+        where: {
+          createdAt: { gte: input.from, lte: toEnd },
+          ...(input.sucursalId ? { sucursalId: input.sucursalId } : {}),
+        },
+        include: { sucursal: true, employee: { select: { name: true } } },
+        orderBy: { createdAt: "desc" },
+      });
+
+      const groups = new Map<
+        string,
+        { date: string; total: number; pagos: { id: string; monto: number; createdAt: Date; sucursal: { name: string }; employee: { name: string } }[] }
+      >();
+      for (const pago of pagos) {
+        const date = dayFormatter.format(pago.createdAt);
+        const group = groups.get(date) ?? { date, total: 0, pagos: [] };
+        group.total += Number(pago.monto);
+        group.pagos.push({ ...pago, monto: Number(pago.monto) });
+        groups.set(date, group);
+      }
+
+      return Array.from(groups.values()).sort((a, b) => (a.date < b.date ? 1 : -1));
     }),
 
   // Saldo de la caja fuerte de cada sucursal: suma de sus retiros desde el

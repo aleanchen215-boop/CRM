@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { toast } from "sonner";
 import { AlertTriangle } from "lucide-react";
 import { trpc } from "@/lib/trpc/client";
@@ -37,6 +37,17 @@ function daysAgoStr(days: number) {
   d.setDate(d.getDate() - days);
   return d.toISOString().slice(0, 10);
 }
+// group.date viene como "YYYY-MM-DD" (huso Argentina, ver dayFormatter en
+// el router) — se arma con hora fija para que no dependa del huso local
+// del navegador al mostrarla.
+function formatDayLabel(date: string) {
+  return new Date(`${date}T00:00:00`).toLocaleDateString("es-AR", {
+    weekday: "short",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+}
 
 // Vista de auditoría para Admin: saldo de la caja fuerte de cada
 // sucursal (con botón para vaciarla), cierres de turno (con la
@@ -56,6 +67,11 @@ export function FinanzasAdminView() {
     sucursalId,
   });
   const { data: retiros, isLoading: loadingRetiros } = trpc.turnos.listRetiros.useQuery({
+    from,
+    to,
+    sucursalId,
+  });
+  const { data: pagosCadete, isLoading: loadingPagosCadete } = trpc.turnos.listPagosCadete.useQuery({
     from,
     to,
     sucursalId,
@@ -264,6 +280,64 @@ export function FinanzasAdminView() {
                   <TableCell className="text-muted-foreground">{retiro.employee.name}</TableCell>
                   <TableCell>{formatCurrency(retiro.monto)}</TableCell>
                 </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base font-medium">Pagos a cadetes</CardTitle>
+        </CardHeader>
+        <CardContent className="p-0">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Fecha</TableHead>
+                <TableHead>Sucursal</TableHead>
+                <TableHead>Empleado</TableHead>
+                <TableHead>Monto</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {loadingPagosCadete && (
+                <TableRow>
+                  <TableCell colSpan={4} className="text-center text-sm text-muted-foreground">
+                    Cargando…
+                  </TableCell>
+                </TableRow>
+              )}
+              {!loadingPagosCadete && pagosCadete?.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={4} className="text-center text-sm text-muted-foreground">
+                    Sin pagos a cadetes en el período.
+                  </TableCell>
+                </TableRow>
+              )}
+              {pagosCadete?.map((group) => (
+                <Fragment key={group.date}>
+                  <TableRow className="bg-muted/40">
+                    <TableCell className="font-medium capitalize">{formatDayLabel(group.date)}</TableCell>
+                    <TableCell colSpan={2} className="text-muted-foreground">
+                      Salida del día
+                    </TableCell>
+                    <TableCell className="font-medium">{formatCurrency(group.total)}</TableCell>
+                  </TableRow>
+                  {group.pagos.map((pago) => (
+                    <TableRow key={pago.id}>
+                      <TableCell className="pl-6 text-muted-foreground">
+                        {new Date(pago.createdAt).toLocaleTimeString("es-AR", {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </TableCell>
+                      <TableCell>{pago.sucursal.name}</TableCell>
+                      <TableCell className="text-muted-foreground">{pago.employee.name}</TableCell>
+                      <TableCell>{formatCurrency(pago.monto)}</TableCell>
+                    </TableRow>
+                  ))}
+                </Fragment>
               ))}
             </TableBody>
           </Table>
