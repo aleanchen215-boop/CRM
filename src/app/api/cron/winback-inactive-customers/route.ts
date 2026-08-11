@@ -25,7 +25,16 @@ export async function GET(request: Request) {
     return NextResponse.json({ ok: false, error: "No existe la sucursal Paracao." }, { status: 500 });
   }
 
-  const cutoff = new Date(Date.now() - WINBACK_INACTIVE_DAYS * 24 * 60 * 60 * 1000);
+  // ?days= permite pisar el corte para una corrida manual puntual (ej. la
+  // tanda inicial a 15 días el día que se aprueba la plantilla) sin tocar
+  // el cron diario, que nunca manda ese parámetro y siempre usa el default.
+  const daysParam = new URL(request.url).searchParams.get("days");
+  const inactiveDays = daysParam ? Number(daysParam) : WINBACK_INACTIVE_DAYS;
+  if (!Number.isFinite(inactiveDays) || inactiveDays <= 0) {
+    return NextResponse.json({ ok: false, error: "El parámetro days tiene que ser un número positivo." }, { status: 400 });
+  }
+
+  const cutoff = new Date(Date.now() - inactiveDays * 24 * 60 * 60 * 1000);
   const [candidates, clientMessages] = await Promise.all([
     prisma.customer.findMany({
       where: { whatsapp: { not: WALK_IN_WHATSAPP }, winbackMessageSentAt: null },
@@ -86,5 +95,5 @@ export async function GET(request: Request) {
     }
   }
 
-  return NextResponse.json({ ok: true, eligible: eligible.length, sent, failed });
+  return NextResponse.json({ ok: true, inactiveDays, eligible: eligible.length, sent, failed });
 }
