@@ -6,7 +6,7 @@ export default function LoginPage() {
     <div className="flex min-h-screen items-center justify-center bg-muted/30 p-6">
       <Card className="w-full max-w-sm">
         <CardHeader>
-          <CardTitle className="text-xl">CRM Paracao</CardTitle>
+          <CardTitle className="text-xl">Empapizza</CardTitle>
           <CardDescription>Ingresá con tu cuenta para continuar.</CardDescription>
         </CardHeader>
         <CardContent>

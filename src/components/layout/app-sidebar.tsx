@@ -122,7 +122,7 @@ export function AppSidebar({ user }: { user: AppSidebarUser }) {
             className="size-7 shrink-0 rounded-md"
           />
           <span className="text-sm font-semibold group-data-[collapsible=icon]:hidden">
-            CRM Paracao
+            Empapizza
           </span>
         </div>
       </SidebarHeader>

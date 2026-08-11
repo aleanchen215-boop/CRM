@@ -20,7 +20,7 @@ export async function createMercadoPagoPreference(
     body: JSON.stringify({
       items: [
         {
-          title: `Pedido CRM Paracao`,
+          title: `Pedido Empapizza`,
           quantity: 1,
           unit_price: amount,
           currency_id: "ARS",

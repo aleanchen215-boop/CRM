@@ -17,7 +17,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "CRM Paracao",
+  title: "Empapizza",
   description: "CRM interno: clientes, ventas, stock e IA.",
 };
 
