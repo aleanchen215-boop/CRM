@@ -14,12 +14,32 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { CustomerStatusBadge } from "@/components/customers/customer-status-badge";
 import { NewCustomerDialog } from "@/components/customers/new-customer-dialog";
 
+const ALL_SUCURSALES_VALUE = "__todas__";
+
 export default function ClientesPage() {
   const [search, setSearch] = useState("");
-  const { data: customers, isLoading } = trpc.customers.list.useQuery({ search });
+  const [sucursalId, setSucursalId] = useState<string | undefined>(undefined);
+  const { data: me } = trpc.system.me.useQuery();
+  // Solo Admin ve las dos sucursales mezcladas y necesita separarlas — el
+  // resto de los roles que entra a Clientes (Vendedor, Atención,
+  // Supervisor) no está atado a una sucursal en particular, así que el
+  // filtro no les aporta nada.
+  const isAdmin = me?.role === "ADMIN";
+  const { data: sucursales } = trpc.sucursales.list.useQuery(undefined, { enabled: isAdmin });
+  const { data: customers, isLoading } = trpc.customers.list.useQuery({
+    search,
+    sucursalId: isAdmin ? sucursalId : undefined,
+  });
 
   return (
     <div className="flex flex-col gap-6">
@@ -33,14 +53,36 @@ export default function ClientesPage() {
         <NewCustomerDialog />
       </div>
 
-      <div className="relative max-w-sm">
-        <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          placeholder="Buscar por nombre, WhatsApp o email…"
-          className="pl-8"
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-        />
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="relative max-w-sm flex-1">
+          <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder="Buscar por nombre, WhatsApp o email…"
+            className="pl-8"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+          />
+        </div>
+        {isAdmin && (
+          <Select
+            value={sucursalId ?? ALL_SUCURSALES_VALUE}
+            onValueChange={(v) => setSucursalId(!v || v === ALL_SUCURSALES_VALUE ? undefined : v)}
+          >
+            <SelectTrigger className="w-44">
+              <SelectValue>
+                {sucursales?.find((s) => s.id === sucursalId)?.name ?? "Todas las sucursales"}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL_SUCURSALES_VALUE}>Todas las sucursales</SelectItem>
+              {sucursales?.map((s) => (
+                <SelectItem key={s.id} value={s.id}>
+                  {s.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
       </div>
 
       <Card>

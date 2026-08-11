@@ -13,6 +13,9 @@ export const customersRouter = router({
     .input(
       z.object({
         search: z.string().trim().optional(),
+        // Solo Admin la usa (ver ClientesPage) — el resto de los roles ve
+        // todas las sucursales mezcladas, como siempre.
+        sucursalId: z.string().optional(),
         limit: z.number().min(1).max(100).default(50),
       }),
     )
@@ -34,26 +37,31 @@ export const customersRouter = router({
           include: {
             tags: true,
             _count: { select: { orders: true } },
-            orders: { orderBy: { createdAt: "desc" }, take: 1, select: { createdAt: true } },
+            orders: { orderBy: { createdAt: "desc" }, take: 1, select: { createdAt: true, sucursalId: true } },
           },
         }),
         // No todo pedido por WhatsApp queda bien cargado como pedido a nombre
         // del cliente correcto (a veces se carga como mostrador/otro número)
         // — así que "última compra" no es solo el último Order, sino lo más
         // reciente entre el último pedido Y el último mensaje que ese
-        // cliente mandó por WhatsApp, lo que haya pasado después.
+        // cliente mandó por WhatsApp, lo que haya pasado después. La
+        // sucursal del mensaje sale de a qué número le escribió (ver
+        // Conversation.sucursalId).
         ctx.prisma.message.findMany({
           where: { sender: "CLIENTE" },
           orderBy: { createdAt: "desc" },
-          select: { createdAt: true, conversation: { select: { customerId: true } } },
+          select: { createdAt: true, conversation: { select: { customerId: true, sucursalId: true } } },
         }),
       ]);
 
-      const lastMessageByCustomer = new Map<string, Date>();
+      const lastMessageByCustomer = new Map<string, { createdAt: Date; sucursalId: string }>();
       for (const message of lastClientMessages) {
         const customerId = message.conversation.customerId;
         if (!lastMessageByCustomer.has(customerId)) {
-          lastMessageByCustomer.set(customerId, message.createdAt);
+          lastMessageByCustomer.set(customerId, {
+            createdAt: message.createdAt,
+            sucursalId: message.conversation.sucursalId,
+          });
         }
       }
 
@@ -61,19 +69,26 @@ export const customersRouter = router({
       // pide, más abajo) — no por fecha de alta, así arriba de la lista
       // queda quién está activo ahora mismo. Se ordena acá (no en la query)
       // porque no hay forma directa de pedirle a Prisma "ORDER BY el
-      // createdAt más reciente de una relación".
+      // createdAt más reciente de una relación". La sucursal "del cliente"
+      // es la de esa misma última actividad (pedido o mensaje) — no hay un
+      // campo fijo de sucursal en Customer.
       const sorted = customers
         .map(({ orders, ...customer }) => {
-          const lastOrderAt = orders[0]?.createdAt ?? null;
-          const lastMessageAt = lastMessageByCustomer.get(customer.id) ?? null;
-          const lastOrderAtCombined =
-            lastOrderAt && lastMessageAt
-              ? lastOrderAt > lastMessageAt
-                ? lastOrderAt
-                : lastMessageAt
-              : (lastOrderAt ?? lastMessageAt);
-          return { ...customer, lastOrderAt: lastOrderAtCombined };
+          const lastOrder = orders[0];
+          const lastMessage = lastMessageByCustomer.get(customer.id);
+          const latest =
+            lastOrder && lastMessage
+              ? lastOrder.createdAt > lastMessage.createdAt
+                ? lastOrder
+                : lastMessage
+              : (lastOrder ?? lastMessage);
+          return {
+            ...customer,
+            lastOrderAt: latest?.createdAt ?? null,
+            sucursalId: latest?.sucursalId ?? null,
+          };
         })
+        .filter((c) => !input.sucursalId || c.sucursalId === input.sucursalId)
         .sort((a, b) => {
           if (!a.lastOrderAt && !b.lastOrderAt) return 0;
           if (!a.lastOrderAt) return 1;
