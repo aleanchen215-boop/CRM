@@ -6,7 +6,7 @@
     },
     {
       "path": "/api/cron/winback-inactive-customers",
-      "schedule": "0 18 * * *"
+      "schedule": "0 23 * * *"
     }
   ]
 }
