@@ -136,6 +136,9 @@ model Customer {
   // Se pone en hora cuando se le manda el mensaje automático de "te
   // extrañamos" (cron winback-inactive-customers) — una sola vez por
   // cliente, aunque siga sin volver a comprar, para no repetirlo cada día.
+  // También se usa para excluir a mano a alguien de la campaña (ej. gente
+  // de confianza del negocio) sin que se le haya mandado nada en realidad —
+  // el cron no distingue entre las dos razones, solo que ya no le toca.
   winbackMessageSentAt DateTime?
   createdAt            DateTime       @default(now())
   updatedAt            DateTime       @updatedAt
