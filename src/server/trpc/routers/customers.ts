@@ -28,12 +28,60 @@ export const customersRouter = router({
           }
         : {};
 
-      return ctx.prisma.customer.findMany({
-        where,
-        orderBy: { createdAt: "desc" },
-        take: input.limit,
-        include: { tags: true, _count: { select: { orders: true } } },
-      });
+      const [customers, lastClientMessages] = await Promise.all([
+        ctx.prisma.customer.findMany({
+          where,
+          include: {
+            tags: true,
+            _count: { select: { orders: true } },
+            orders: { orderBy: { createdAt: "desc" }, take: 1, select: { createdAt: true } },
+          },
+        }),
+        // No todo pedido por WhatsApp queda bien cargado como pedido a nombre
+        // del cliente correcto (a veces se carga como mostrador/otro número)
+        // — así que "última compra" no es solo el último Order, sino lo más
+        // reciente entre el último pedido Y el último mensaje que ese
+        // cliente mandó por WhatsApp, lo que haya pasado después.
+        ctx.prisma.message.findMany({
+          where: { sender: "CLIENTE" },
+          orderBy: { createdAt: "desc" },
+          select: { createdAt: true, conversation: { select: { customerId: true } } },
+        }),
+      ]);
+
+      const lastMessageByCustomer = new Map<string, Date>();
+      for (const message of lastClientMessages) {
+        const customerId = message.conversation.customerId;
+        if (!lastMessageByCustomer.has(customerId)) {
+          lastMessageByCustomer.set(customerId, message.createdAt);
+        }
+      }
+
+      // Ordenados por la última vez que pidieron (el que hace más que no
+      // pide, más abajo) — no por fecha de alta, así arriba de la lista
+      // queda quién está activo ahora mismo. Se ordena acá (no en la query)
+      // porque no hay forma directa de pedirle a Prisma "ORDER BY el
+      // createdAt más reciente de una relación".
+      const sorted = customers
+        .map(({ orders, ...customer }) => {
+          const lastOrderAt = orders[0]?.createdAt ?? null;
+          const lastMessageAt = lastMessageByCustomer.get(customer.id) ?? null;
+          const lastOrderAtCombined =
+            lastOrderAt && lastMessageAt
+              ? lastOrderAt > lastMessageAt
+                ? lastOrderAt
+                : lastMessageAt
+              : (lastOrderAt ?? lastMessageAt);
+          return { ...customer, lastOrderAt: lastOrderAtCombined };
+        })
+        .sort((a, b) => {
+          if (!a.lastOrderAt && !b.lastOrderAt) return 0;
+          if (!a.lastOrderAt) return 1;
+          if (!b.lastOrderAt) return -1;
+          return b.lastOrderAt.getTime() - a.lastOrderAt.getTime();
+        });
+
+      return sorted.slice(0, input.limit);
     }),
 
   getById: requirePermission("customers:read")

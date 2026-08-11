@@ -26,14 +26,43 @@ export async function GET(request: Request) {
   }
 
   const cutoff = new Date(Date.now() - WINBACK_INACTIVE_DAYS * 24 * 60 * 60 * 1000);
-  const candidates = await prisma.customer.findMany({
-    where: { whatsapp: { not: WALK_IN_WHATSAPP }, winbackMessageSentAt: null },
-    include: { orders: { orderBy: { createdAt: "desc" }, take: 1, select: { createdAt: true, sucursalId: true } } },
-  });
+  const [candidates, clientMessages] = await Promise.all([
+    prisma.customer.findMany({
+      where: { whatsapp: { not: WALK_IN_WHATSAPP }, winbackMessageSentAt: null },
+      include: { orders: { orderBy: { createdAt: "desc" }, take: 1, select: { createdAt: true, sucursalId: true } } },
+    }),
+    // No todo pedido por WhatsApp queda bien cargado como Order a nombre del
+    // cliente correcto — así que la última actividad no es solo el último
+    // pedido, sino lo más reciente entre eso y el último mensaje que mandó
+    // por WhatsApp (con la sucursal a la que le escribió).
+    prisma.message.findMany({
+      where: { sender: "CLIENTE" },
+      orderBy: { createdAt: "desc" },
+      select: { createdAt: true, conversation: { select: { customerId: true, sucursalId: true } } },
+    }),
+  ]);
+
+  const lastMessageByCustomer = new Map<string, { createdAt: Date; sucursalId: string }>();
+  for (const message of clientMessages) {
+    const customerId = message.conversation.customerId;
+    if (!lastMessageByCustomer.has(customerId)) {
+      lastMessageByCustomer.set(customerId, {
+        createdAt: message.createdAt,
+        sucursalId: message.conversation.sucursalId,
+      });
+    }
+  }
 
   const eligible = candidates.filter((c) => {
     const lastOrder = c.orders[0];
-    return lastOrder && lastOrder.sucursalId === paracao.id && lastOrder.createdAt < cutoff;
+    const lastMessage = lastMessageByCustomer.get(c.id);
+    const lastActivity =
+      lastOrder && lastMessage
+        ? lastOrder.createdAt > lastMessage.createdAt
+          ? lastOrder
+          : lastMessage
+        : (lastOrder ?? lastMessage);
+    return lastActivity && lastActivity.sucursalId === paracao.id && lastActivity.createdAt < cutoff;
   });
 
   let sent = 0;

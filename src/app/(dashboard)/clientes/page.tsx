@@ -52,20 +52,21 @@ export default function ClientesPage() {
                 <TableHead>WhatsApp</TableHead>
                 <TableHead>Ciudad</TableHead>
                 <TableHead>Compras</TableHead>
+                <TableHead>Última compra</TableHead>
                 <TableHead>Estado</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading && (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center text-sm text-muted-foreground">
+                  <TableCell colSpan={6} className="text-center text-sm text-muted-foreground">
                     Cargando…
                   </TableCell>
                 </TableRow>
               )}
               {!isLoading && customers?.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center text-sm text-muted-foreground">
+                  <TableCell colSpan={6} className="text-center text-sm text-muted-foreground">
                     Todavía no hay clientes cargados.
                   </TableCell>
                 </TableRow>
@@ -80,6 +81,11 @@ export default function ClientesPage() {
                   <TableCell className="text-muted-foreground">{customer.whatsapp}</TableCell>
                   <TableCell className="text-muted-foreground">{customer.city ?? "—"}</TableCell>
                   <TableCell className="text-muted-foreground">{customer._count.orders}</TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {customer.lastOrderAt
+                      ? new Date(customer.lastOrderAt).toLocaleDateString("es-AR")
+                      : "—"}
+                  </TableCell>
                   <TableCell>
                     <CustomerStatusBadge status={customer.status} />
                   </TableCell>
