@@ -76,8 +76,20 @@ export const reportsRouter = router({
           items: {
             select: {
               quantity: true,
-              product: { select: { name: true } },
-              promotion: { select: { name: true } },
+              product: { select: { name: true, category: { select: { name: true } } } },
+              promotion: {
+                select: {
+                  name: true,
+                  items: {
+                    select: {
+                      kind: true,
+                      quantity: true,
+                      category: { select: { name: true } },
+                      product: { select: { category: { select: { name: true } } } },
+                    },
+                  },
+                },
+              },
             },
           },
         },
@@ -101,6 +113,15 @@ export const reportsRouter = router({
       const byChannelMap = new Map<string, { total: number; count: number }>();
       const byMethodMap = new Map<string, { total: number; count: number }>();
       const productosMap = new Map<string, number>();
+      // Pizzas y empanadas vendidas, contando también lo que viene de promos
+      // (ej. "Docena de empanadas" = 12, "3 Muzzarellas" = 3 pizzas) — se
+      // cuenta en producto físico, no en pedidos, así que se cuenta sobre
+      // TODOS los entregados (incluye Cuenta Corriente: esa pizza se hizo
+      // igual, aunque el cobro haya quedado anotado para después).
+      let pizzasTotal = 0;
+      let empanadasTotal = 0;
+      const pizzasByDayMap = new Map<string, number>();
+      const empanadasByDayMap = new Map<string, number>();
 
       for (const order of facturableOrders) {
         const day = dayFormatter.format(order.createdAt);
@@ -125,10 +146,47 @@ export const reportsRouter = router({
         methodEntry.count += 1;
         byMethodMap.set(methodLabel, methodEntry);
 
+        const day = dayFormatter.format(order.createdAt);
+
         for (const item of order.items) {
           const name = item.product?.name ?? item.promotion?.name;
-          if (!name) continue;
-          productosMap.set(name, (productosMap.get(name) ?? 0) + item.quantity);
+          if (name) {
+            productosMap.set(name, (productosMap.get(name) ?? 0) + item.quantity);
+          }
+
+          // Renglón de producto suelto (pizza entera o media/media — ambas
+          // apuntan a un Product real vía productId, la mitad y mitad
+          // igual consume/representa una pizza física por unidad).
+          if (item.product) {
+            const categoryName = item.product.category?.name;
+            if (categoryName === "Pizzas") {
+              pizzasTotal += item.quantity;
+              pizzasByDayMap.set(day, (pizzasByDayMap.get(day) ?? 0) + item.quantity);
+            } else if (categoryName === "Empanadas") {
+              empanadasTotal += item.quantity;
+              empanadasByDayMap.set(day, (empanadasByDayMap.get(day) ?? 0) + item.quantity);
+            }
+            continue;
+          }
+
+          // Renglón de promo: se descompone según sus PromotionItem (FIJO
+          // mira la categoría del producto puntual, VARIABLE ya trae la
+          // categoría directo) — no hace falta mirar `selections` (ahí solo
+          // queda registrado QUÉ sabor eligió, no hace falta para el total).
+          if (item.promotion) {
+            for (const promoItem of item.promotion.items) {
+              const categoryName =
+                promoItem.kind === "VARIABLE" ? promoItem.category?.name : promoItem.product?.category?.name;
+              const qty = promoItem.quantity * item.quantity;
+              if (categoryName === "Pizzas") {
+                pizzasTotal += qty;
+                pizzasByDayMap.set(day, (pizzasByDayMap.get(day) ?? 0) + qty);
+              } else if (categoryName === "Empanadas") {
+                empanadasTotal += qty;
+                empanadasByDayMap.set(day, (empanadasByDayMap.get(day) ?? 0) + qty);
+              }
+            }
+          }
         }
       }
 
@@ -175,6 +233,18 @@ export const reportsRouter = router({
         productosMasVendidos: Array.from(productosMap.entries())
           .map(([name, quantity]) => ({ name, quantity }))
           .sort((a, b) => b.quantity - a.quantity),
+        pizzas: {
+          total: pizzasTotal,
+          byDay: Array.from(pizzasByDayMap.entries())
+            .map(([date, quantity]) => ({ date, quantity }))
+            .sort((a, b) => a.date.localeCompare(b.date)),
+        },
+        empanadas: {
+          total: empanadasTotal,
+          byDay: Array.from(empanadasByDayMap.entries())
+            .map(([date, quantity]) => ({ date, quantity }))
+            .sort((a, b) => a.date.localeCompare(b.date)),
+        },
         descuentos: {
           total: discountedOrders.reduce((acc, o) => acc + discountAmount(o), 0),
           count: discountedOrders.length,

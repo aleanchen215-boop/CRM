@@ -209,6 +209,54 @@ export default function ReportesPage() {
         </Card>
       </div>
 
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Pizzas vendidas
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            <div className="text-2xl font-semibold">
+              {isLoading ? "…" : data?.pizzas.total ?? 0}
+            </div>
+            {data && data.pizzas.byDay.length > 0 && (
+              <ul className="flex max-h-40 flex-col gap-1.5 overflow-y-auto text-sm">
+                {data.pizzas.byDay.map((row) => (
+                  <li key={row.date} className="flex items-center justify-between gap-2">
+                    <span className="text-muted-foreground">{row.date}</span>
+                    <span className="font-medium">{row.quantity}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Empanadas vendidas
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            <div className="text-2xl font-semibold">
+              {isLoading ? "…" : data?.empanadas.total ?? 0}
+            </div>
+            {data && data.empanadas.byDay.length > 0 && (
+              <ul className="flex max-h-40 flex-col gap-1.5 overflow-y-auto text-sm">
+                {data.empanadas.byDay.map((row) => (
+                  <li key={row.date} className="flex items-center justify-between gap-2">
+                    <span className="text-muted-foreground">{row.date}</span>
+                    <span className="font-medium">{row.quantity}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <Card>
           <CardHeader>
