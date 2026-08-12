@@ -31,6 +31,19 @@ const CHANNEL_LABELS: Record<string, string> = {
 // de negocio en la zona de Argentina, no un instante puntual.
 const dateStringSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Fecha inválida");
 
+// Mismo formato que arma resolveOrderItem (create-order.ts) y que ya lee la
+// pantalla de Ventas (ver ventas/[id]/page.tsx) — acá se usa para saber
+// exactamente qué sabor quedó vendido dentro de una promo (el top 5 por
+// sabor no se puede sacar de PromotionItem: eso es la definición actual de
+// la promo, no lo que el cliente eligió en cada pedido puntual).
+type PromoSelection =
+  | { type: "FIJO"; productId: string | null; nombre: string; cantidad: number }
+  | { type: "VARIABLE"; categoria: string; productos: { productId: string; nombre: string }[] };
+
+function parsePromoSelections(raw: unknown): PromoSelection[] {
+  return Array.isArray(raw) ? (raw as PromoSelection[]) : [];
+}
+
 export const reportsRouter = router({
   // Totales de ventas por día/canal/método de pago + descuentos, productos
   // más vendidos y el detalle de cada pedido, sobre pedidos entregados
@@ -56,6 +69,16 @@ export const reportsRouter = router({
       const paddedTo = new Date(`${input.to}T00:00:00Z`);
       paddedTo.setUTCDate(paddedTo.getUTCDate() + 2);
 
+      // Para resolver a qué categoría pertenece cada sabor dentro de una
+      // promo (top 5) se mira el producto directo, no el campo `categoria`
+      // que quedó guardado en `selections` — en pedidos viejos ese campo a
+      // veces quedó vacío (bug de una versión anterior al armar la promo),
+      // así que confiar en el productId de cada elección es más seguro.
+      const allProducts = await ctx.prisma.product.findMany({
+        select: { id: true, category: { select: { name: true } } },
+      });
+      const productCategoryById = new Map(allProducts.map((p) => [p.id, p.category?.name]));
+
       const candidates = await ctx.prisma.order.findMany({
         where: {
           status: "ENTREGADO",
@@ -76,6 +99,7 @@ export const reportsRouter = router({
           items: {
             select: {
               quantity: true,
+              selections: true,
               product: { select: { name: true, category: { select: { name: true } } } },
               promotion: {
                 select: {
@@ -84,6 +108,7 @@ export const reportsRouter = router({
                     select: {
                       kind: true,
                       quantity: true,
+                      productId: true,
                       category: { select: { name: true } },
                       product: { select: { category: { select: { name: true } } } },
                     },
@@ -121,6 +146,11 @@ export const reportsRouter = router({
       let empanadasTotal = 0;
       const pizzasByDayMap = new Map<string, number>();
       const empanadasByDayMap = new Map<string, number>();
+      // Top 5 por sabor puntual (ej. "Muzzarella", "Jamón y queso") — a
+      // diferencia de pizzasTotal/empanadasTotal (categoría entera), esto
+      // agrupa por producto real, tanto suelto como dentro de una promo.
+      const pizzaFlavorMap = new Map<string, number>();
+      const empanadaFlavorMap = new Map<string, number>();
 
       for (const order of facturableOrders) {
         const day = dayFormatter.format(order.createdAt);
@@ -157,23 +187,31 @@ export const reportsRouter = router({
 
           // Renglón de producto suelto (pizza entera o media/media — ambas
           // apuntan a un Product real vía productId, la mitad y mitad
-          // igual consume/representa una pizza física por unidad).
+          // igual consume/representa una pizza física por unidad, atribuida
+          // entera al primer sabor — mismo criterio que el descuento de
+          // stock, ver resolveOrderItem).
           if (item.product) {
             const categoryName = item.product.category?.name;
             if (categoryName === "Pizzas") {
               pizzasTotal += item.quantity;
               pizzasByDayMap.set(day, (pizzasByDayMap.get(day) ?? 0) + item.quantity);
+              pizzaFlavorMap.set(item.product.name, (pizzaFlavorMap.get(item.product.name) ?? 0) + item.quantity);
             } else if (categoryName === "Empanadas") {
               empanadasTotal += item.quantity;
               empanadasByDayMap.set(day, (empanadasByDayMap.get(day) ?? 0) + item.quantity);
+              empanadaFlavorMap.set(
+                item.product.name,
+                (empanadaFlavorMap.get(item.product.name) ?? 0) + item.quantity,
+              );
             }
             continue;
           }
 
-          // Renglón de promo: se descompone según sus PromotionItem (FIJO
-          // mira la categoría del producto puntual, VARIABLE ya trae la
-          // categoría directo) — no hace falta mirar `selections` (ahí solo
-          // queda registrado QUÉ sabor eligió, no hace falta para el total).
+          // Renglón de promo: el total por categoría sale de PromotionItem
+          // (FIJO mira la categoría del producto puntual, VARIABLE ya trae
+          // la categoría directo). Para el top 5 por sabor hace falta algo
+          // más fino — ahí sí hay que mirar `selections`, que es lo único
+          // que registra QUÉ sabor puntual eligió el cliente en ese pedido.
           if (item.promotion) {
             for (const promoItem of item.promotion.items) {
               const categoryName =
@@ -185,6 +223,28 @@ export const reportsRouter = router({
               } else if (categoryName === "Empanadas") {
                 empanadasTotal += qty;
                 empanadasByDayMap.set(day, (empanadasByDayMap.get(day) ?? 0) + qty);
+              }
+            }
+
+            for (const selection of parsePromoSelections(item.selections)) {
+              if (selection.type === "FIJO") {
+                const categoryName = selection.productId ? productCategoryById.get(selection.productId) : undefined;
+                const qty = selection.cantidad * item.quantity;
+                if (categoryName === "Pizzas") {
+                  pizzaFlavorMap.set(selection.nombre, (pizzaFlavorMap.get(selection.nombre) ?? 0) + qty);
+                } else if (categoryName === "Empanadas") {
+                  empanadaFlavorMap.set(selection.nombre, (empanadaFlavorMap.get(selection.nombre) ?? 0) + qty);
+                }
+              } else {
+                const qty = item.quantity;
+                for (const producto of selection.productos) {
+                  const categoryName = productCategoryById.get(producto.productId);
+                  if (categoryName === "Pizzas") {
+                    pizzaFlavorMap.set(producto.nombre, (pizzaFlavorMap.get(producto.nombre) ?? 0) + qty);
+                  } else if (categoryName === "Empanadas") {
+                    empanadaFlavorMap.set(producto.nombre, (empanadaFlavorMap.get(producto.nombre) ?? 0) + qty);
+                  }
+                }
               }
             }
           }
@@ -239,12 +299,20 @@ export const reportsRouter = router({
           byDay: Array.from(pizzasByDayMap.entries())
             .map(([date, quantity]) => ({ date, quantity }))
             .sort((a, b) => a.date.localeCompare(b.date)),
+          top5: Array.from(pizzaFlavorMap.entries())
+            .map(([name, quantity]) => ({ name, quantity }))
+            .sort((a, b) => b.quantity - a.quantity)
+            .slice(0, 5),
         },
         empanadas: {
           total: empanadasTotal,
           byDay: Array.from(empanadasByDayMap.entries())
             .map(([date, quantity]) => ({ date, quantity }))
             .sort((a, b) => a.date.localeCompare(b.date)),
+          top5: Array.from(empanadaFlavorMap.entries())
+            .map(([name, quantity]) => ({ name, quantity }))
+            .sort((a, b) => b.quantity - a.quantity)
+            .slice(0, 5),
         },
         descuentos: {
           total: discountedOrders.reduce((acc, o) => acc + discountAmount(o), 0),

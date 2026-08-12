@@ -259,6 +259,56 @@ export default function ReportesPage() {
         </Card>
       </div>
 
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base font-medium">Top 5 pizzas más vendidas</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {isLoading && <p className="text-sm text-muted-foreground">Cargando…</p>}
+            {!isLoading && data?.pizzas.top5.length === 0 && (
+              <p className="text-sm text-muted-foreground">Sin ventas en el período.</p>
+            )}
+            {data && data.pizzas.top5.length > 0 && (
+              <ol className="flex flex-col gap-2">
+                {data.pizzas.top5.map((row, index) => (
+                  <li key={row.name} className="flex items-center justify-between gap-2 text-sm">
+                    <span>
+                      <span className="text-muted-foreground">{index + 1}.</span> {row.name}
+                    </span>
+                    <span className="font-medium">{row.quantity}</span>
+                  </li>
+                ))}
+              </ol>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base font-medium">Top 5 empanadas más vendidas</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {isLoading && <p className="text-sm text-muted-foreground">Cargando…</p>}
+            {!isLoading && data?.empanadas.top5.length === 0 && (
+              <p className="text-sm text-muted-foreground">Sin ventas en el período.</p>
+            )}
+            {data && data.empanadas.top5.length > 0 && (
+              <ol className="flex flex-col gap-2">
+                {data.empanadas.top5.map((row, index) => (
+                  <li key={row.name} className="flex items-center justify-between gap-2 text-sm">
+                    <span>
+                      <span className="text-muted-foreground">{index + 1}.</span> {row.name}
+                    </span>
+                    <span className="font-medium">{row.quantity}</span>
+                  </li>
+                ))}
+              </ol>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <Card>
           <CardHeader>
