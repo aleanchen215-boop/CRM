@@ -241,7 +241,9 @@ export default function ReportesPage() {
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
             <div className="text-2xl font-semibold">
-              {isLoading ? "…" : data?.empanadas.total ?? 0}
+              {isLoading
+                ? "…"
+                : `${data?.empanadas.total ?? 0} (${((data?.empanadas.total ?? 0) / 12).toFixed(1)} docenas)`}
             </div>
             {data && data.empanadas.byDay.length > 0 && (
               <ul className="flex max-h-40 flex-col gap-1.5 overflow-y-auto text-sm">

@@ -115,12 +115,17 @@ export const dashboardRouter = router({
 
     // Cuenta corriente es un consumo interno que se anota para cobrar/
     // descontar después (ver comentario del enum PaymentMethod) — descuenta
-    // stock como cualquier venta, pero no es plata que haya entrado de
-    // verdad, así que no debe sumar a la facturación.
+    // stock como cualquier venta, pero no es una venta real todavía, así que
+    // NO cuenta para ninguna estadística (ni facturación, ni cantidad de
+    // pedidos entregados, ni cantidad de productos vendidos) hasta que se
+    // cobre de verdad. Sigue viéndose su propio renglón en formasDePagoHoy,
+    // para tener a la vista cuánto quedó anotado sin mezclarlo con el resto.
+    const facturable = (orders: typeof entregados) => orders.filter((order) => order.method !== "CUENTA_CORRIENTE");
     const sum = (orders: typeof entregados) =>
-      orders
-        .filter((order) => order.method !== "CUENTA_CORRIENTE")
-        .reduce((acc, order) => acc + Number(order.total), 0);
+      facturable(orders).reduce((acc, order) => acc + Number(order.total), 0);
+
+    const facturableHoy = facturable(entregadosHoy);
+    const facturableMes = facturable(entregadosMes);
 
     const productosVendidosHoy = new Map<string, number>();
     const formasDePagoHoy = new Map<string, { count: number; total: number }>();
@@ -130,7 +135,8 @@ export const dashboardRouter = router({
       current.count += 1;
       current.total += Number(order.total);
       formasDePagoHoy.set(label, current);
-
+    }
+    for (const order of facturableHoy) {
       for (const item of order.items) {
         const name = item.product?.name ?? item.promotion?.name;
         if (!name) continue;
@@ -168,8 +174,8 @@ export const dashboardRouter = router({
     }
 
     return {
-      ventasHoy: { count: entregadosHoy.length, total: sum(entregadosHoy) },
-      ventasMes: { count: entregadosMes.length, total: sum(entregadosMes) },
+      ventasHoy: { count: facturableHoy.length, total: sum(entregadosHoy) },
+      ventasMes: { count: facturableMes.length, total: sum(entregadosMes) },
       facturacionTotal: sum(entregados),
       nuevosClientesHoy: recentCustomers.filter((c) => isToday(c.createdAt, today)).length,
       ticketsAbiertos: activeOrdersCount,

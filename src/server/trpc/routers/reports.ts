@@ -114,10 +114,9 @@ export const reportsRouter = router({
       const byMethodMap = new Map<string, { total: number; count: number }>();
       const productosMap = new Map<string, number>();
       // Pizzas y empanadas vendidas, contando también lo que viene de promos
-      // (ej. "Docena de empanadas" = 12, "3 Muzzarellas" = 3 pizzas) — se
-      // cuenta en producto físico, no en pedidos, así que se cuenta sobre
-      // TODOS los entregados (incluye Cuenta Corriente: esa pizza se hizo
-      // igual, aunque el cobro haya quedado anotado para después).
+      // (ej. "Docena de empanadas" = 12, "3 Muzzarellas" = 3 pizzas) — igual
+      // que la facturación, Cuenta Corriente queda afuera: no es una venta
+      // real todavía (se cobra/descuenta después), así que no suma acá.
       let pizzasTotal = 0;
       let empanadasTotal = 0;
       const pizzasByDayMap = new Map<string, number>();
@@ -145,7 +144,9 @@ export const reportsRouter = router({
         methodEntry.total += Number(order.total);
         methodEntry.count += 1;
         byMethodMap.set(methodLabel, methodEntry);
+      }
 
+      for (const order of facturableOrders) {
         const day = dayFormatter.format(order.createdAt);
 
         for (const item of order.items) {
