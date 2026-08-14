@@ -4,12 +4,14 @@ import { sendWhatsappTemplateMessage } from "@/server/integrations/whatsapp/clie
 import { WALK_IN_WHATSAPP } from "@/server/customers/walk-in";
 
 // Reactivación de clientes: a quien no compra hace más de 30 días se le
-// manda una promo de 10% off + envío gratis, una sola vez (nunca se repite
-// aunque siga sin volver — ver Customer.winbackMessageSentAt). Por ahora
-// solo alcanza a clientes cuya última compra fue en Paracao (Almafuerte
-// queda afuera a pedido). Mensaje de negocio sin que el cliente haya
-// escrito antes → WhatsApp exige plantilla aprobada, no texto libre (ver
-// sendWhatsappTemplateMessage).
+// manda una promo de 10% off + envío gratis. No se repite mientras siga sin
+// volver (Customer.winbackMessageSentAt queda seteado), pero si el cliente
+// vuelve a pedir, createOrder resetea ese campo — así que si después vuelve
+// a estar 30+ días inactivo, es elegible de nuevo (ver src/server/orders/
+// create-order.ts). Por ahora solo alcanza a clientes cuya última actividad
+// fue en Paracao (Almafuerte queda afuera a pedido). Mensaje de negocio sin
+// que el cliente haya escrito antes → WhatsApp exige plantilla aprobada, no
+// texto libre (ver sendWhatsappTemplateMessage).
 const WINBACK_INACTIVE_DAYS = 30;
 const WINBACK_TEMPLATE_NAME = "cliente_inactivo_descuento";
 const WINBACK_TEMPLATE_LANGUAGE = "es_AR";

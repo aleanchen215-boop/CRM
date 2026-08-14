@@ -326,6 +326,17 @@ export async function createOrder(input: CreateOrderInput) {
 
     await applySupplyDeductions(tx, input.sucursalId, deductions);
 
+    // Si este cliente ya había recibido el mensaje de reactivación alguna
+    // vez, volver a pedir lo "reactiva" — se lo vuelve a considerar elegible
+    // si en el futuro pasa otros 30 días sin actividad (ver
+    // /api/cron/winback-inactive-customers). Sin esto, el mensaje solo se
+    // manda una vez en toda la relación con el cliente, aunque después
+    // vuelva a estar inactivo.
+    await tx.customer.updateMany({
+      where: { id: input.customerId, winbackMessageSentAt: { not: null } },
+      data: { winbackMessageSentAt: null },
+    });
+
     return order;
   });
 }
