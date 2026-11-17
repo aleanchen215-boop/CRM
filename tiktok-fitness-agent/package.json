@@ -1,0 +1,33 @@
+{
+  "name": "tiktok-fitness-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "daily": "tsx src/index.ts",
+    "demo": "tsx src/index.ts --demo",
+    "studio": "remotion studio src/remotion/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "1.10.0",
+    "@fontsource/montserrat": "5.3.0",
+    "@remotion/bundler": "4.0.544",
+    "@remotion/cli": "4.0.544",
+    "@remotion/fonts": "4.0.544",
+    "@remotion/renderer": "4.0.544",
+    "@remotion/transitions": "4.0.544",
+    "dotenv": "18.0.10",
+    "openai": "6.49.0",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "remotion": "4.0.544",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.6",
+    "@types/react": "19.3.0",
+    "tsx": "4.23.15",
+    "typescript": "7.0.2"
+  }
+}

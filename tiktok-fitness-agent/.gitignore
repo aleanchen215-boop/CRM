@@ -1,0 +1,6 @@
+node_modules/
+out/
+state/
+.env
+assets/music/*.mp3
+package-lock.json

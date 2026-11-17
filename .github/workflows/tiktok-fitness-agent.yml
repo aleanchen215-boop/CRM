@@ -1,0 +1,78 @@
+name: TikTok Fitness Agent (diario)
+
+on:
+  schedule:
+    # Todos los días 10:17 UTC (07:17 en Argentina). Cambiá el horario acá.
+    - cron: "17 10 * * *"
+  workflow_dispatch:
+    inputs:
+      demo:
+        description: "Correr en modo demo (sin APIs)"
+        type: boolean
+        default: false
+
+concurrency:
+  group: tiktok-fitness-agent
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    defaults:
+      run:
+        working-directory: tiktok-fitness-agent
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - run: npm install --no-audit --no-fund
+
+      - name: Instalar Chrome headless para Remotion
+        run: npx remotion browser ensure
+
+      # Memoria de qué virales ya se procesaron (para no repetir).
+      - name: Restaurar estado
+        uses: actions/cache/restore@v4
+        with:
+          path: tiktok-fitness-agent/state
+          key: tiktok-agent-state-${{ github.run_id }}
+          restore-keys: tiktok-agent-state-
+
+      - name: Correr agente
+        env:
+          APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
+          ELEVENLABS_VOICE_ID: ${{ vars.ELEVENLABS_VOICE_ID }}
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+          TIKTOK_HASHTAGS: ${{ vars.TIKTOK_HASHTAGS }}
+          TOP_VIDEOS: ${{ vars.TOP_VIDEOS }}
+          VARIATIONS_PER_VIDEO: ${{ vars.VARIATIONS_PER_VIDEO }}
+          BRAND_CTA: ${{ vars.BRAND_CTA }}
+        run: |
+          if [ "${{ inputs.demo }}" = "true" ]; then npm run demo; else npm run daily; fi
+
+      - name: Guardar estado
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: tiktok-fitness-agent/state
+          key: tiktok-agent-state-${{ github.run_id }}
+
+      - name: Subir videos y reporte
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tiktok-videos-${{ github.run_number }}
+          path: |
+            tiktok-fitness-agent/out/**/*.mp4
+            tiktok-fitness-agent/out/**/*.json
+            tiktok-fitness-agent/out/**/*.txt
+            tiktok-fitness-agent/out/**/REPORTE.md
+            !tiktok-fitness-agent/out/**/public/**
+          retention-days: 14
