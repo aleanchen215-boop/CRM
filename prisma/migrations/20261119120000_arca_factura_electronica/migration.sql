@@ -1,5 +1,3 @@
-◇ injected env (0) from .env // tip: ◈ secrets for agents [www.dotenvx.com]
-◇ injected env (0) from .env.local // tip: ⌁ auth for agents [www.vestauth.com]
 -- CreateEnum
 CREATE TYPE "ArcaStatus" AS ENUM ('PENDIENTE', 'AUTORIZADO', 'ERROR');
 
