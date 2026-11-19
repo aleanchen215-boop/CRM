@@ -20,6 +20,8 @@ import {
 import { getAvailableStock, computeRequestedQuantities } from "@/server/stock/availability";
 import { getOrCreateWalkInCustomer } from "@/server/customers/walk-in";
 import type { PrismaClient } from "@/generated/prisma/client";
+import { emitirFacturaC, shouldAutoInvoice, tryAutoInvoice } from "@/server/integrations/arca/facturar";
+import { getArcaEmisor, isArcaConfigured } from "@/server/integrations/arca/config";
 
 function toNumber<T extends { total: unknown }>(order: T) {
   return { ...order, total: Number(order.total) };
@@ -57,6 +59,20 @@ async function assertStockAvailable(prisma: PrismaClient, items: OrderInput["ite
     throw new TRPCError({
       code: "BAD_REQUEST",
       message: `No hay stock suficiente de "${product?.name ?? "ese producto"}" — quedan ${stock}, el pedido tiene ${quantity}.`,
+    });
+  }
+}
+
+// Una vez que la venta tiene factura C con CAE, el total ya quedó informado
+// a ARCA — agregar/sacar productos o cambiar el descuento dejaría la factura
+// impresa distinta de lo cobrado. Para corregir hay que cancelar la venta
+// (y hacer la nota de crédito) y cargarla de nuevo.
+async function assertNotInvoiced(prisma: PrismaClient, orderId: string) {
+  const invoice = await prisma.invoice.findUnique({ where: { orderId }, select: { arcaStatus: true } });
+  if (invoice?.arcaStatus === "AUTORIZADO" || invoice?.arcaStatus === "PENDIENTE") {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Esta venta ya tiene factura de ARCA: no se puede cambiar el total.",
     });
   }
 }
@@ -134,6 +150,12 @@ export const ordersRouter = router({
       return {
         ...toNumber(order),
         items: order.items.map((item) => ({ ...item, unitPrice: Number(item.unitPrice) })),
+        invoice: order.invoice
+          ? { ...order.invoice, importe: order.invoice.importe != null ? Number(order.invoice.importe) : null }
+          : null,
+        // Datos del emisor para imprimir la factura C (no son secretos) —
+        // null si ARCA no está configurado, así la UI no ofrece facturar.
+        arcaEmisor: isArcaConfigured() ? getArcaEmisor(order.sucursal.slug) : null,
       };
     }),
 
@@ -198,7 +220,12 @@ export const ordersRouter = router({
           message: "Este pedido ya no se puede modificar (ya está en preparación o ya salió).",
         });
       }
-      return toNumber(updated);
+
+      // Si se pasó a Payway en mostrador, se factura igual que si se
+      // hubiera cargado así desde el principio (no hace nada si ya tenía CAE).
+      const factura =
+        order.method !== input.method && shouldAutoInvoice(updated) ? await tryAutoInvoice(updated.id) : null;
+      return { ...toNumber(updated), factura };
     }),
 
   // Marca/desmarca a mano el cartel de "Pagado" de un pedido pagado por
@@ -234,7 +261,8 @@ export const ordersRouter = router({
         discountValue: z.coerce.number().positive().optional(),
       }),
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      await assertNotInvoiced(ctx.prisma, input.id);
       const discount =
         input.discountType && input.discountValue
           ? { type: input.discountType, value: input.discountValue }
@@ -274,6 +302,12 @@ export const ordersRouter = router({
       await assertStockAvailable(ctx.prisma, input.items, sucursalId);
       const order = await createOrder({ ...input, customerId, sucursalId, employeeId: ctx.user.id });
 
+      // Venta de mostrador cobrada con Payway: factura C en ARCA en el acto,
+      // antes de devolver — así cuando la pantalla redirige al detalle con
+      // ?autoprint=1 el CAE ya está y sale impreso junto con la comanda. Si
+      // ARCA falla la venta queda creada igual (se reintenta desde el detalle).
+      const factura = shouldAutoInvoice(order) ? await tryAutoInvoice(order.id) : null;
+
       // Si se cargó una dirección de entrega para un cliente puntual (no el
       // genérico de mostrador), queda guardada en su ficha — así la próxima
       // vez que se lo elija en un pedido delivery ya aparece precargada, sin
@@ -289,7 +323,28 @@ export const ordersRouter = router({
         }
       }
 
-      return toNumber(order);
+      return { ...toNumber(order), factura };
+    }),
+
+  // Emite (o reintenta) la factura C en ARCA a mano desde el detalle de la
+  // venta — para cuando falló la emisión automática, o para facturar una
+  // venta que no era Payway (ej. pago repartido). Idempotente.
+  emitInvoice: requirePermission("orders:write")
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const order = await ctx.prisma.order.findUnique({ where: { id: input.id }, select: { sucursalId: true } });
+      if (!order || (ctx.user.sucursalId && order.sucursalId !== ctx.user.sucursalId)) {
+        throw new TRPCError({ code: "NOT_FOUND" });
+      }
+      try {
+        const invoice = await emitirFacturaC(input.id);
+        return { ok: true, cae: invoice.cae };
+      } catch (error) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: error instanceof Error ? error.message : "No se pudo emitir la factura.",
+        });
+      }
     }),
 
   // Edición manual desde el CRM (botón "Editar pedido" en el detalle) —
@@ -303,6 +358,7 @@ export const ordersRouter = router({
     .mutation(async ({ ctx, input }) => {
       const order = await ctx.prisma.order.findUnique({ where: { id: input.orderId } });
       if (!order) throw new TRPCError({ code: "NOT_FOUND" });
+      await assertNotInvoiced(ctx.prisma, input.orderId);
       await assertStockAvailable(ctx.prisma, input.items, order.sucursalId);
 
       const updated = await addItemsToOrder(input.orderId, input.items);
@@ -323,6 +379,7 @@ export const ordersRouter = router({
   removeItemRow: requirePermission("orders:write")
     .input(z.object({ orderId: z.string(), orderItemId: z.string() }))
     .mutation(async ({ ctx, input }) => {
+      await assertNotInvoiced(ctx.prisma, input.orderId);
       const currentCount = await ctx.prisma.orderItem.count({ where: { orderId: input.orderId } });
       if (currentCount <= 1) {
         throw new TRPCError({

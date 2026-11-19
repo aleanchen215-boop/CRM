@@ -192,4 +192,15 @@
   .receipt-print .receipt-total {
     font-size: 18px !important;
   }
+  /* Factura C impresa junto con la comanda: va en otra "hoja" para que la
+     térmica corte el papel entre una y otra (el cliente se lleva la
+     factura, la comanda queda en cocina). */
+  .receipt-print.receipt-page-break {
+    break-before: page;
+  }
+  /* El QR tiene que salir negro sobre blanco aunque arriba se fuerce
+     background transparente en todo el ticket. */
+  .receipt-print svg rect {
+    fill: #fff !important;
+  }
 }

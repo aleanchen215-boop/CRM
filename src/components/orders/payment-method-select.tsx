@@ -31,21 +31,31 @@ export function PaymentMethodSelect({
   method,
   channel,
   channelSource,
+  onInvoiced,
 }: {
   orderId: string;
   method: (typeof paymentMethodValues)[number];
   channel: "MOSTRADOR" | "DELIVERY" | "APPS";
   channelSource?: string | null;
+  // Se llama cuando el cambio a Payway disparó la factura C y ARCA la
+  // autorizó — el detalle la imprime en el momento.
+  onInvoiced?: () => void;
 }) {
   const utils = trpc.useUtils();
 
   const updatePayment = trpc.orders.updatePayment.useMutation({
-    onSuccess: async () => {
+    onSuccess: async (result) => {
       await Promise.all([
         utils.orders.getById.invalidate({ id: orderId }),
         utils.orders.list.invalidate(),
       ]);
       toast.success("Método de pago actualizado");
+      if (result.factura?.ok) {
+        toast.success("Factura C emitida en ARCA");
+        onInvoiced?.();
+      } else if (result.factura) {
+        toast.error(`La venta no se pudo facturar: ${result.factura.error}`);
+      }
     },
     onError: (error) => toast.error(error.message),
   });

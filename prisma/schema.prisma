@@ -599,6 +599,18 @@ enum InvoiceStatus {
   ANULADO
 }
 
+// Estado de la factura electrónica en ARCA (ex AFIP) para este pedido.
+// Nulo = nunca se pidió (comprobante interno nada más). PENDIENTE = hay un
+// pedido de CAE en curso (o se cortó a mitad de camino: ver
+// src/server/integrations/arca/facturar.ts, que lo recupera consultando a
+// ARCA antes de pedir un número nuevo). ERROR = ARCA lo rechazó o no se pudo
+// conectar — se puede reintentar desde el detalle de la venta.
+enum ArcaStatus {
+  PENDIENTE
+  AUTORIZADO
+  ERROR
+}
+
 model Invoice {
   id        String        @id @default(uuid())
   orderId   String        @unique
@@ -608,7 +620,44 @@ model Invoice {
   status    InvoiceStatus @default(EMITIDO)
   createdAt DateTime      @default(now())
 
+  // ---- Factura electrónica ARCA (solo cuando type = AFIP) ----
+  arcaStatus      ArcaStatus?
+  // Último error devuelto por ARCA (o de conexión), para mostrarlo en el
+  // detalle de la venta y poder reintentar.
+  arcaError       String?
+  arcaRequestedAt DateTime?
+  // 11 = Factura C (monotributo). Se guarda igual por si algún día cambia.
+  cbteTipo        Int?
+  puntoVenta      Int?
+  // Número que se intentó/obtuvo — se guarda ANTES de pedir el CAE, así si
+  // la conexión se corta después de que ARCA lo autorizó, el reintento
+  // consulta ese número en vez de sacar otro (y duplicar la factura).
+  cbteNumero      Int?
+  // Fecha del comprobante tal como se informó a ARCA (yyyymmdd).
+  cbteFecha       String?
+  importe         Decimal?      @db.Decimal(12, 2)
+  cae             String?       @unique
+  // Vencimiento del CAE (yyyymmdd), va impreso en la factura.
+  caeVencimiento  String?
+
+  @@unique([cbteTipo, puntoVenta, cbteNumero])
   @@map("invoices")
+}
+
+// Ticket de acceso (token + sign) de WSAA para un web service de ARCA. Vale
+// ~12 hs y ARCA rechaza pedir uno nuevo mientras el anterior siga vigente,
+// así que se guarda en la base (no en memoria: en Vercel cada request puede
+// caer en una instancia distinta) y se reusa hasta que vence.
+model ArcaTicket {
+  id        String   @id @default(uuid())
+  // "wsfe-homologacion" / "wsfe-produccion" — un ticket por servicio y entorno.
+  key       String   @unique
+  token     String
+  sign      String
+  expiresAt DateTime
+  updatedAt DateTime @updatedAt
+
+  @@map("arca_tickets")
 }
 
 enum PaymentStatus {

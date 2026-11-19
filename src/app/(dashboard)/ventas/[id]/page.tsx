@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useEffect, useRef } from "react";
+import { use, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, Printer, TriangleAlert } from "lucide-react";
@@ -22,6 +22,13 @@ import { PaymentModeToggle } from "@/components/orders/payment-mode-toggle";
 import { StaffNotesCard } from "@/components/orders/staff-notes-card";
 import { useCanPerform } from "@/lib/use-can-perform";
 import { markAsHandled } from "@/lib/printed-orders";
+import { FacturaCard } from "@/components/orders/factura-card";
+import { FacturaTicket } from "@/components/orders/factura-ticket";
+
+// "todo" = comanda + factura C (si tiene) en el mismo trabajo de impresión,
+// la factura en una hoja aparte (corte de papel). "factura" = solo la
+// factura, para cuando se emite/reimprime después.
+type PrintMode = "todo" | "factura";
 
 const MODIFIABLE_STATUSES = new Set(["PENDIENTE", "CONFIRMADO"]);
 
@@ -112,6 +119,28 @@ export default function OrderDetailPage({
   const router = useRouter();
   const searchParams = useSearchParams();
   const didAutoPrint = useRef(false);
+  const [printMode, setPrintMode] = useState<PrintMode>("todo");
+  // Cada pedido de impresión suma 1; el efecto de abajo imprime cuando hay
+  // uno sin atender (printedRequest guarda el último ya impreso).
+  const [printRequest, setPrintRequest] = useState(0);
+  const printedRequest = useRef(0);
+
+  const facturaReady = order?.invoice?.arcaStatus === "AUTORIZADO" && order.arcaEmisor != null;
+
+  function requestPrint(mode: PrintMode) {
+    setPrintMode(mode);
+    setPrintRequest((n) => n + 1);
+  }
+
+  // window.print() recién después de que React pintó el modo elegido (y,
+  // para "solo factura", de que llegó el CAE) — si se llamara directo en el
+  // onClick todavía estaría impreso el modo anterior.
+  useEffect(() => {
+    if (printRequest === printedRequest.current) return;
+    if (printMode === "factura" && !facturaReady) return;
+    printedRequest.current = printRequest;
+    window.print();
+  }, [printRequest, printMode, facturaReady]);
 
   const acknowledge = trpc.orders.acknowledgeChanges.useMutation({
     onSuccess: async () => {
@@ -140,7 +169,7 @@ export default function OrderDetailPage({
       didAutoPrint.current = true;
       markAsHandled(id);
       markComandaPrinted.mutate({ id });
-      window.print();
+      requestPrint("todo");
       router.replace(`/ventas/${id}`);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -245,6 +274,7 @@ export default function OrderDetailPage({
                 method={order.method}
                 channel={order.channel}
                 channelSource={order.channelSource}
+                onInvoiced={() => requestPrint("factura")}
               />
               <DiscountEditor
                 orderId={order.id}
@@ -275,7 +305,7 @@ export default function OrderDetailPage({
             onClick={() => {
               markAsHandled(id);
               markComandaPrinted.mutate({ id });
-              window.print();
+              requestPrint("todo");
             }}
           >
             <Printer />
@@ -378,13 +408,24 @@ export default function OrderDetailPage({
         </CardContent>
       </Card>
 
+      {order.arcaEmisor && (
+        <FacturaCard
+          orderId={order.id}
+          invoice={order.invoice}
+          orderStatus={order.status}
+          canEdit={canEdit}
+          onPrint={() => requestPrint("factura")}
+          onEmitted={() => requestPrint("factura")}
+        />
+      )}
+
       <StaffNotesCard orderId={order.id} staffNotes={order.staffNotes} />
 
       {/* Vista de solo impresión para la térmica de 80mm — .receipt-print
           queda display:none salvo en @media print (ver globals.css).
           Angosta, monoespaciada, sin tabla de columnas: cada renglón apila
           cantidad/nombre arriba y precio abajo para que entre en el papel. */}
-      <div className="receipt-print">
+      <div className={printMode === "factura" && facturaReady ? "hidden" : "receipt-print"}>
         <p className="receipt-title text-center font-bold uppercase">Empapizza</p>
         <p className="text-center">{order.sucursal.name}</p>
         <hr className="my-1 border-dashed border-black" />
@@ -444,6 +485,30 @@ export default function OrderDetailPage({
         <hr className="my-1 border-dashed border-black" />
         <p className="text-center">Comprobante interno, sin validez fiscal.</p>
       </div>
+
+      {facturaReady && order.invoice && order.arcaEmisor && (
+        <FacturaTicket
+          className={cn("receipt-print", printMode === "todo" && "receipt-page-break")}
+          emisor={order.arcaEmisor}
+          factura={{
+            puntoVenta: order.invoice.puntoVenta ?? 0,
+            cbteTipo: order.invoice.cbteTipo ?? 11,
+            cbteNumero: order.invoice.cbteNumero ?? 0,
+            cbteFecha: order.invoice.cbteFecha ?? "",
+            importe: order.invoice.importe ?? order.total,
+            cae: order.invoice.cae ?? "",
+            caeVencimiento: order.invoice.caeVencimiento,
+          }}
+          items={order.items.map((item) => ({
+            id: item.id,
+            quantity: item.quantity,
+            label: itemLabel(item),
+            subtotal: item.unitPrice * item.quantity,
+          }))}
+          discountAmount={discountAmount}
+          deliveryFee={order.channel === "DELIVERY" && order.deliveryFee != null ? Number(order.deliveryFee) : null}
+        />
+      )}
     </div>
   );
 }
