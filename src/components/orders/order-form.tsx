@@ -153,11 +153,6 @@ export function OrderForm({
     onSuccess: async (order) => {
       await utils.orders.list.invalidate();
       toast.success("Pedido creado");
-      // Mostrador + Payway factura sola en ARCA (ver orders.create). Si
-      // falló, la venta igual quedó creada: se avisa y se reintenta desde
-      // el detalle.
-      if (order.factura?.ok) toast.success("Factura C emitida en ARCA");
-      else if (order.factura) toast.error(`La venta no se pudo facturar: ${order.factura.error}`);
       onSuccess(order.id);
     },
     onError: (error) => toast.error(error.message),

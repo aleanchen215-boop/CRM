@@ -12,6 +12,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { SplitPaymentDialog } from "@/components/orders/split-payment-dialog";
+import { EmitirFacturaDialog } from "@/components/orders/emitir-factura-dialog";
 
 const STATUS_LABELS: Record<(typeof orderStatusValues)[number], string> = {
   PENDIENTE: "Pendiente",
@@ -28,6 +29,9 @@ export function OrderStatusSelect({
   total,
   channel,
   channelSource,
+  method,
+  invoiced,
+  onInvoiced,
 }: {
   orderId: string;
   status: (typeof orderStatusValues)[number];
@@ -35,17 +39,29 @@ export function OrderStatusSelect({
   total: number;
   channel: "MOSTRADOR" | "DELIVERY" | "APPS";
   channelSource?: string | null;
+  method: string;
+  // Si la venta ya tiene factura C con CAE no se vuelve a ofrecer emitirla.
+  invoiced: boolean;
+  // Se llama cuando se emitió la factura desde la ventana — el detalle la
+  // imprime en el momento.
+  onInvoiced?: () => void;
 }) {
   const utils = trpc.useUtils();
   const [splitOpen, setSplitOpen] = useState(false);
+  const [facturaOpen, setFacturaOpen] = useState(false);
 
   const updateStatus = trpc.orders.updateStatus.useMutation({
-    onSuccess: async () => {
+    onSuccess: async (_order, variables) => {
       await Promise.all([
         utils.orders.getById.invalidate({ id: orderId }),
         utils.orders.list.invalidate(),
       ]);
       toast.success("Estado actualizado");
+      // Venta cobrada con Payway que se acaba de entregar: se ofrece emitir
+      // la factura C (botón verde Emitir / rojo Cancelar).
+      if (variables.status === "ENTREGADO" && method === "PAYWAY" && paymentMode === "SIMPLE" && !invoiced) {
+        setFacturaOpen(true);
+      }
     },
     onError: (error) => toast.error(error.message),
   });
@@ -92,6 +108,14 @@ export function OrderStatusSelect({
         total={total}
         channel={channel}
         channelSource={channelSource}
+      />
+
+      <EmitirFacturaDialog
+        open={facturaOpen}
+        onOpenChange={setFacturaOpen}
+        orderId={orderId}
+        total={total}
+        onEmitted={onInvoiced}
       />
     </>
   );

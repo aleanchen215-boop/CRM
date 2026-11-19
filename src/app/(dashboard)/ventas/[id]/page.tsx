@@ -274,7 +274,6 @@ export default function OrderDetailPage({
                 method={order.method}
                 channel={order.channel}
                 channelSource={order.channelSource}
-                onInvoiced={() => requestPrint("factura")}
               />
               <DiscountEditor
                 orderId={order.id}
@@ -287,6 +286,9 @@ export default function OrderDetailPage({
             <PaymentModeToggle orderId={order.id} paymentMode={order.paymentMode} />
           )}
           <OrderStatusSelect
+            method={order.method}
+            invoiced={order.invoice?.arcaStatus === "AUTORIZADO"}
+            onInvoiced={() => requestPrint("factura")}
             orderId={order.id}
             status={order.status}
             paymentMode={order.paymentMode}

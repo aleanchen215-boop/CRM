@@ -20,7 +20,7 @@ import {
 import { getAvailableStock, computeRequestedQuantities } from "@/server/stock/availability";
 import { getOrCreateWalkInCustomer } from "@/server/customers/walk-in";
 import type { PrismaClient } from "@/generated/prisma/client";
-import { emitirFacturaC, shouldAutoInvoice, tryAutoInvoice } from "@/server/integrations/arca/facturar";
+import { emitirFacturaC } from "@/server/integrations/arca/facturar";
 import { getArcaEmisor, isArcaConfigured } from "@/server/integrations/arca/config";
 
 function toNumber<T extends { total: unknown }>(order: T) {
@@ -220,12 +220,7 @@ export const ordersRouter = router({
           message: "Este pedido ya no se puede modificar (ya está en preparación o ya salió).",
         });
       }
-
-      // Si se pasó a Payway en mostrador, se factura igual que si se
-      // hubiera cargado así desde el principio (no hace nada si ya tenía CAE).
-      const factura =
-        order.method !== input.method && shouldAutoInvoice(updated) ? await tryAutoInvoice(updated.id) : null;
-      return { ...toNumber(updated), factura };
+      return toNumber(updated);
     }),
 
   // Marca/desmarca a mano el cartel de "Pagado" de un pedido pagado por
@@ -302,12 +297,6 @@ export const ordersRouter = router({
       await assertStockAvailable(ctx.prisma, input.items, sucursalId);
       const order = await createOrder({ ...input, customerId, sucursalId, employeeId: ctx.user.id });
 
-      // Venta de mostrador cobrada con Payway: factura C en ARCA en el acto,
-      // antes de devolver — así cuando la pantalla redirige al detalle con
-      // ?autoprint=1 el CAE ya está y sale impreso junto con la comanda. Si
-      // ARCA falla la venta queda creada igual (se reintenta desde el detalle).
-      const factura = shouldAutoInvoice(order) ? await tryAutoInvoice(order.id) : null;
-
       // Si se cargó una dirección de entrega para un cliente puntual (no el
       // genérico de mostrador), queda guardada en su ficha — así la próxima
       // vez que se lo elija en un pedido delivery ya aparece precargada, sin
@@ -323,12 +312,12 @@ export const ordersRouter = router({
         }
       }
 
-      return { ...toNumber(order), factura };
+      return toNumber(order);
     }),
 
-  // Emite (o reintenta) la factura C en ARCA a mano desde el detalle de la
-  // venta — para cuando falló la emisión automática, o para facturar una
-  // venta que no era Payway (ej. pago repartido). Idempotente.
+  // Emite (o reintenta) la factura C en ARCA. La dispara la ventana que
+  // aparece al marcar ENTREGADO una venta con Payway, o el botón del detalle
+  // de la venta (reintento, o facturar otra venta a mano). Idempotente.
   emitInvoice: requirePermission("orders:write")
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {

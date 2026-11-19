@@ -39,12 +39,6 @@ function hoyArca(): string {
 
 export class FacturaError extends Error {}
 
-export function shouldAutoInvoice(order: { channel: string; method: string; paymentMode: string }) {
-  return (
-    isArcaConfigured() && order.channel === "MOSTRADOR" && order.method === "PAYWAY" && order.paymentMode === "SIMPLE"
-  );
-}
-
 export async function emitirFacturaC(orderId: string) {
   if (!isArcaConfigured()) throw new FacturaError("La facturación con ARCA no está configurada.");
 
@@ -169,17 +163,5 @@ export async function emitirFacturaC(orderId: string) {
     // autorizó, el reintento lo recupera.
     await prisma.invoice.update({ where: { orderId }, data: { arcaStatus: "ERROR", arcaError: message } });
     throw new FacturaError(message);
-  }
-}
-
-// Variante para los flujos automáticos (alta de venta, cambio de método de
-// pago): nunca hace fallar la venta en sí — si ARCA falla, la venta queda
-// creada igual y el error se ve en el detalle para reintentar.
-export async function tryAutoInvoice(orderId: string): Promise<{ ok: true } | { ok: false; error: string }> {
-  try {
-    await emitirFacturaC(orderId);
-    return { ok: true };
-  } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : "No se pudo emitir la factura." };
   }
 }
