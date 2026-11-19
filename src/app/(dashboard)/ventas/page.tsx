@@ -113,7 +113,7 @@ export default function VentasPage() {
                       // efectivamente lo vea/imprima la comanda. El aviso de
                       // cancelación pedida por el cliente es más urgente, así
                       // que gana si ambos aplican a la vez.
-                      order.cancelRequestedByCustomerAt
+                      order.cancelRequestedByCustomerAt || order.invoice?.arcaStatus === "ERROR"
                         ? "border-destructive/60 bg-destructive/5"
                         : !order.employeeId && !order.comandaPrintedAt && "border-violet-500/60 bg-violet-500/5",
                     )}
@@ -138,6 +138,16 @@ export default function VentasPage() {
                     {order.cancelRequestedByCustomerAt && (
                       <Badge variant="destructive" className="w-fit">
                         Cancelado por el cliente
+                      </Badge>
+                    )}
+                    {order.invoice?.arcaStatus === "ERROR" && (
+                      <Badge variant="destructive" className="w-fit" title={order.invoice.arcaError ?? undefined}>
+                        Factura C sin emitir — falló ARCA, reintentar
+                      </Badge>
+                    )}
+                    {order.invoice?.arcaStatus === "PENDIENTE" && (
+                      <Badge variant="outline" className="w-fit border-amber-500/60 text-amber-600 dark:text-amber-400">
+                        Factura C esperando confirmación de ARCA
                       </Badge>
                     )}
                     {order.scheduledFor && (

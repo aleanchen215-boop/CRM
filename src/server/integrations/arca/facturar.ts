@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { getPuntoVenta, isArcaConfigured } from "@/server/integrations/arca/config";
 import { getArcaCredentials } from "@/server/integrations/arca/wsaa";
+import { ArcaConnectionError } from "@/server/integrations/arca/soap";
 import {
   CBTE_TIPO_FACTURA_C,
   consultarComprobante,
@@ -158,7 +159,11 @@ export async function emitirFacturaC(orderId: string) {
     });
   } catch (error) {
     if (error instanceof FacturaError) throw error;
-    const message = error instanceof Error ? error.message : "Error desconocido al facturar.";
+    const detail = error instanceof Error ? error.message : "Error desconocido al facturar.";
+    const message =
+      error instanceof ArcaConnectionError
+        ? `El servicio de ARCA no responde (${detail}). La venta queda pendiente de factura: reintentá en unos minutos.`
+        : detail;
     // Se deja cbteNumero como está: si el corte fue después de que ARCA
     // autorizó, el reintento lo recupera.
     await prisma.invoice.update({ where: { orderId }, data: { arcaStatus: "ERROR", arcaError: message } });

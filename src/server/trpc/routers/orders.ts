@@ -93,7 +93,13 @@ export const ordersRouter = router({
       const sucursalId = resolveSucursalFilter(ctx.user, input?.sucursalId);
       const orders = await ctx.prisma.order.findMany({
         where: {
-          status: { notIn: ["CANCELADO", "ENTREGADO"] },
+          OR: [
+            { status: { notIn: ["CANCELADO", "ENTREGADO"] } },
+            // Entregado al que se le pidió la factura C pero ARCA todavía no
+            // la confirmó (falló o quedó a mitad de camino): sigue a la vista
+            // hasta que tenga CAE, para que no se olvide de reintentar.
+            { status: "ENTREGADO", invoice: { arcaStatus: { in: ["PENDIENTE", "ERROR"] } } },
+          ],
           ...(sucursalId ? { sucursalId } : {}),
         },
         orderBy: { createdAt: "desc" },
@@ -102,6 +108,7 @@ export const ordersRouter = router({
           sucursal: true,
           _count: { select: { items: true } },
           payments: { select: { status: true } },
+          invoice: { select: { arcaStatus: true, arcaError: true } },
         },
       });
       return orders.map(toNumber);

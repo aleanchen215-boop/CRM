@@ -44,6 +44,34 @@ function parsePromoSelections(raw: unknown): PromoSelection[] {
   return Array.isArray(raw) ? (raw as PromoSelection[]) : [];
 }
 
+// Detalle legible de un renglón para el listado de pedidos de Reportes:
+// qué pizza fue mitad y mitad, o qué sabores se eligieron en una promo
+// ("Empanadas a elección: 6x Carne, 6x Jamón y queso").
+function describeItem(item: {
+  selections: unknown;
+  product: { name: string } | null;
+  promotion: { name: string } | null;
+}): { label: string; lines: string[] } {
+  const raw = Array.isArray(item.selections) ? (item.selections as { type?: string }[]) : [];
+  if (raw[0]?.type === "MEDIA_MEDIA") {
+    const productos = (raw[0] as { productos?: { nombre: string }[] }).productos ?? [];
+    const [a, b] = productos;
+    return { label: b ? `Mitad ${a?.nombre ?? "?"} / Mitad ${b.nombre}` : `Media ${a?.nombre ?? "?"}`, lines: [] };
+  }
+  const lines: string[] = [];
+  for (const selection of parsePromoSelections(item.selections)) {
+    if (selection.type === "FIJO") {
+      lines.push(`${selection.cantidad}x ${selection.nombre}`);
+    } else if (selection.type === "VARIABLE") {
+      const counts = new Map<string, number>();
+      for (const producto of selection.productos) counts.set(producto.nombre, (counts.get(producto.nombre) ?? 0) + 1);
+      const sabores = [...counts.entries()].map(([nombre, cantidad]) => `${cantidad}x ${nombre}`).join(", ");
+      lines.push(`${selection.categoria || "A elección"}: ${sabores}`);
+    }
+  }
+  return { label: item.product?.name ?? item.promotion?.name ?? "?", lines };
+}
+
 export const reportsRouter = router({
   // Totales de ventas por día/canal/método de pago + descuentos, productos
   // más vendidos y el detalle de cada pedido, sobre pedidos entregados
@@ -96,9 +124,12 @@ export const reportsRouter = router({
           employeeId: true,
           employee: { select: { name: true } },
           customer: { select: { firstName: true, lastName: true } },
+          invoice: { select: { arcaStatus: true } },
           items: {
             select: {
+              id: true,
               quantity: true,
+              unitPrice: true,
               selections: true,
               product: { select: { name: true, category: { select: { name: true } } } },
               promotion: {
@@ -327,8 +358,20 @@ export const reportsRouter = router({
           method: PAYMENT_METHOD_LABELS[order.method] ?? order.method,
           total: Number(order.total),
           itemsSummary: order.items
-            .map((item) => `${item.quantity}x ${item.product?.name ?? item.promotion?.name ?? "?"}`)
+            .map((item) => `${item.quantity}x ${describeItem(item).label}`)
             .join(", "),
+          tieneFacturaC: order.invoice?.arcaStatus === "AUTORIZADO",
+          detalle: order.items.map((item) => {
+            const { label, lines } = describeItem(item);
+            return {
+              id: item.id,
+              label,
+              lines,
+              quantity: item.quantity,
+              unitPrice: Number(item.unitPrice),
+              subtotal: Number(item.unitPrice) * item.quantity,
+            };
+          }),
         })),
       };
     }),

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { type ReactNode, useMemo } from "react";
 import QRCode from "qrcode";
 import { formatCurrency } from "@/lib/format";
 import {
@@ -73,7 +73,7 @@ export function FacturaTicket({
 }: {
   emisor: FacturaEmisor;
   factura: FacturaData;
-  items: { id: string; quantity: number; label: string; subtotal: number }[];
+  items: { id: string; quantity: number; label: string; unitPrice: number; subtotal: number; detail?: ReactNode }[];
   discountAmount: number;
   deliveryFee: number | null;
   className?: string;
@@ -103,14 +103,24 @@ export function FacturaTicket({
         Pto. Vta: {formatPuntoVenta(factura.puntoVenta)} Nro: {formatCbteNumero(factura.cbteNumero)}
       </p>
       <p>Fecha: {formatArcaDate(factura.cbteFecha)}</p>
-      <p>Cliente: Consumidor Final</p>
       <hr className="my-1 border-dashed border-black" />
+      <p className="font-bold">A CONSUMIDOR FINAL</p>
+      <p>Cond. frente al IVA: Consumidor Final</p>
+      <hr className="my-1 border-dashed border-black" />
+      <p className="flex justify-between font-bold">
+        <span>Cant. x P. unit.</span>
+        <span>Importe</span>
+      </p>
       {items.map((item) => (
         <div key={item.id} className="mb-1">
-          <p>
-            {item.quantity}x {item.label}
+          <p className="font-bold">{item.label}</p>
+          {item.detail}
+          <p className="flex justify-between">
+            <span>
+              {item.quantity} x {formatCurrency(item.unitPrice)}
+            </span>
+            <span>{formatCurrency(item.subtotal)}</span>
           </p>
-          <p className="text-right">{formatCurrency(item.subtotal)}</p>
         </div>
       ))}
       <hr className="my-1 border-dashed border-black" />

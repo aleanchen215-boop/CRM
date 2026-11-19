@@ -305,6 +305,7 @@ export default function OrderDetailPage({
           />
           <OrderCancelButton
             orderId={order.id}
+            hasFacturaC={facturaReady}
             status={order.status}
             cancelRequestedByCustomerAt={order.cancelRequestedByCustomerAt}
           />
@@ -512,7 +513,9 @@ export default function OrderDetailPage({
             id: item.id,
             quantity: item.quantity,
             label: itemLabel(item),
+            unitPrice: item.unitPrice,
             subtotal: item.unitPrice * item.quantity,
+            detail: <ItemDetail selections={item.selections} />,
           }))}
           discountAmount={discountAmount}
           deliveryFee={order.channel === "DELIVERY" && order.deliveryFee != null ? Number(order.deliveryFee) : null}

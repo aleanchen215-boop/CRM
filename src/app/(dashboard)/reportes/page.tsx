@@ -1,6 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { Fragment, useState } from "react";
+import Link from "next/link";
+import { ChevronRight } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { OrderCancelButton } from "@/components/orders/order-cancel-button";
 import { trpc } from "@/lib/trpc/client";
 import { formatCurrency } from "@/lib/format";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -106,6 +110,9 @@ export default function ReportesPage() {
   const { selectedSucursalId } = useSucursalSelection();
 
   const { data, isLoading } = trpc.reports.ventas.useQuery({ from, to, sucursalId: selectedSucursalId });
+  // Pedido desplegado en "Ver todos los pedidos del período" (detalle de
+  // productos/sabores y botones para abrir o cancelar la venta).
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   function selectPreset(next: Preset) {
     setPreset(next);
@@ -418,22 +425,81 @@ export default function ReportesPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {data?.pedidos.map((order) => (
-                  <TableRow key={order.id}>
-                    <TableCell className="whitespace-nowrap">
-                      {orderDateFormatter.format(new Date(order.createdAt))}
-                    </TableCell>
-                    <TableCell className="whitespace-nowrap">{order.customerName}</TableCell>
-                    <TableCell className="whitespace-nowrap">{order.channel}</TableCell>
-                    <TableCell className="whitespace-nowrap">{order.method}</TableCell>
-                    <TableCell className="max-w-xs min-w-48 whitespace-normal">
-                      {order.itemsSummary}
-                    </TableCell>
-                    <TableCell className="text-right whitespace-nowrap">
-                      {formatCurrency(order.total)}
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {data?.pedidos.map((order) => {
+                  const open = expandedId === order.id;
+                  return (
+                    <Fragment key={order.id}>
+                      <TableRow
+                        className="cursor-pointer"
+                        onClick={() => setExpandedId(open ? null : order.id)}
+                      >
+                        <TableCell className="whitespace-nowrap">
+                          <span className="inline-flex items-center gap-1">
+                            <ChevronRight className={cn("size-4 transition-transform", open && "rotate-90")} />
+                            {orderDateFormatter.format(new Date(order.createdAt))}
+                          </span>
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap">{order.customerName}</TableCell>
+                        <TableCell className="whitespace-nowrap">{order.channel}</TableCell>
+                        <TableCell className="whitespace-nowrap">{order.method}</TableCell>
+                        <TableCell className="max-w-xs min-w-48 whitespace-normal">
+                          {order.itemsSummary}
+                        </TableCell>
+                        <TableCell className="text-right whitespace-nowrap">
+                          {formatCurrency(order.total)}
+                        </TableCell>
+                      </TableRow>
+                      {open && (
+                        <TableRow className="bg-muted/40 hover:bg-muted/40">
+                          <TableCell colSpan={6} className="whitespace-normal">
+                            <div className="flex flex-col gap-3 py-1">
+                              <ul className="flex flex-col gap-2">
+                                {order.detalle.map((item) => (
+                                  <li key={item.id} className="flex justify-between gap-4 text-sm">
+                                    <div>
+                                      <p className="font-medium">
+                                        {item.quantity}x {item.label}
+                                      </p>
+                                      {item.lines.map((line) => (
+                                        <p key={line} className="text-muted-foreground">
+                                          {line}
+                                        </p>
+                                      ))}
+                                    </div>
+                                    <span className="whitespace-nowrap text-muted-foreground">
+                                      {item.quantity} x {formatCurrency(item.unitPrice)} ={" "}
+                                      <span className="font-medium text-foreground">
+                                        {formatCurrency(item.subtotal)}
+                                      </span>
+                                    </span>
+                                  </li>
+                                ))}
+                              </ul>
+                              <div className="flex flex-wrap items-center justify-end gap-2">
+                                {order.tieneFacturaC && (
+                                  <span className="mr-auto text-xs text-muted-foreground">Tiene factura C emitida</span>
+                                )}
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  render={<Link href={`/ventas/${order.id}`} />}
+                                >
+                                  Abrir venta
+                                </Button>
+                                <OrderCancelButton
+                                  orderId={order.id}
+                                  status="ENTREGADO"
+                                  hasFacturaC={order.tieneFacturaC}
+                                  onCancelled={() => setExpandedId(null)}
+                                />
+                              </div>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </Fragment>
+                  );
+                })}
               </TableBody>
             </Table>
           </div>
