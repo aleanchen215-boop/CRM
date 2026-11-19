@@ -135,11 +135,18 @@ export default function OrderDetailPage({
   // window.print() recién después de que React pintó el modo elegido (y,
   // para "solo factura", de que llegó el CAE) — si se llamara directo en el
   // onClick todavía estaría impreso el modo anterior.
+  //
+  // Con una pausa corta: cuando la impresión viene de la ventana "Emitir
+  // factura C", hay que esperar que termine de cerrarse (animación + bloqueo
+  // de scroll del diálogo) o el navegador imprime la ventana en vez del ticket.
   useEffect(() => {
     if (printRequest === printedRequest.current) return;
     if (printMode === "factura" && !facturaReady) return;
-    printedRequest.current = printRequest;
-    window.print();
+    const timer = setTimeout(() => {
+      printedRequest.current = printRequest;
+      window.print();
+    }, 400);
+    return () => clearTimeout(timer);
   }, [printRequest, printMode, facturaReady]);
 
   const acknowledge = trpc.orders.acknowledgeChanges.useMutation({

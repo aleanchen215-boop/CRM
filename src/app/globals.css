@@ -150,6 +150,21 @@
     min-height: 0 !important;
     margin: 0 !important;
   }
+  /* Ventanas emergentes y avisos nunca van al papel. Y si se imprime justo
+     cuando se cierra una ventana (ej. "Emitir factura C"), el bloqueo de
+     scroll que pone el diálogo (overflow hidden / position fixed en
+     html/body) recortaba la impresión a lo visible en pantalla — se anula. */
+  [data-slot="dialog-portal"],
+  [data-slot="dialog-overlay"],
+  [data-slot="dialog-content"],
+  [data-sonner-toaster] {
+    display: none !important;
+  }
+  html,
+  body {
+    overflow: visible !important;
+    position: static !important;
+  }
 }
 
 /* Comanda para impresora térmica de 80mm (ticket de cocina/reparto, sin
